@@ -2,6 +2,12 @@ const SimpleRugcheckAPI = require('./simple_rugcheck_api');
 const fs = require('fs');
 const path = require('path');
 
+/*
+ * RugcheckContentExtractor - محلل محتوى RugCheck
+ * تم تحديث النظام لعدم حفظ الملفات النصية وتوفير مساحة الذاكرة
+ * يقوم بإرجاع المحتوى مباشرة دون حفظ ملفات rugcheck_content_*.txt
+ */
+
 class RugcheckContentExtractor {
     constructor() {
         this.api = new SimpleRugcheckAPI();
@@ -17,12 +23,8 @@ class RugcheckContentExtractor {
             // تنسيق المحتوى مثل الموقع الأصلي
             const formattedContent = this.formatAsWebsiteContent(reportData, tokenAddress);
             
-            // حفظ المحتوى
-            const filename = `rugcheck_content_${tokenAddress}_${Date.now()}.txt`;
-            const filePath = path.join(__dirname, filename);
-            fs.writeFileSync(filePath, formattedContent, 'utf8');
-            
-            console.log(`✅ تم حفظ المحتوى في: ${filePath}`);
+            // تم إزالة حفظ الملف لتوفير مساحة الذاكرة
+            console.log(`✅ تم تحليل المحتوى للتوكن: ${tokenAddress}`);
             console.log('\n' + '='.repeat(50));
             console.log('📋 محتوى الصفحة المستخرج:');
             console.log('='.repeat(50));

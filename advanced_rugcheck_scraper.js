@@ -3,6 +3,12 @@ const cheerio = require('cheerio');
 const fs = require('fs');
 const path = require('path');
 
+/*
+ * AdvancedRugcheckScraper - محلل RugCheck المتقدم
+ * تم تحديث النظام لعدم حفظ الملفات (JSON, TXT, HTML) وتوفير مساحة الذاكرة
+ * يقوم بإرجاع التقارير مباشرة دون حفظ ملفات على القرص
+ */
+
 class AdvancedRugcheckScraper {
     constructor() {
         this.headers = {
@@ -284,26 +290,16 @@ class AdvancedRugcheckScraper {
     }
 
     async saveDetailedReport(data, filename) {
-        const filePath = path.join(__dirname, filename);
+        // تم إزالة حفظ الملفات لتوفير مساحة الذاكرة
         
-        // حفظ البيانات الكاملة
-        const jsonPath = filePath.replace('.html', '_complete.json');
-        fs.writeFileSync(jsonPath, JSON.stringify(data, null, 2), 'utf8');
-        
-        // إنشاء تقرير مفصل
+        // إنشاء تقرير مفصل للعرض فقط
         const detailedReport = this.generateDetailedReport(data);
-        const reportPath = filePath.replace('.html', '_detailed_report.txt');
-        fs.writeFileSync(reportPath, detailedReport, 'utf8');
         
-        // إنشاء تقرير HTML منسق
-        const htmlReport = this.generateHtmlReport(data);
-        const htmlPath = filePath.replace('.html', '_formatted_report.html');
-        fs.writeFileSync(htmlPath, htmlReport, 'utf8');
+        console.log(`✅ تم إنشاء التقرير:`);
+        console.log(`   � التقرير المفصل جاهز للعرض`);
+        console.log(`   � تم تجنب حفظ الملفات لتوفير المساحة`);
         
-        console.log(`✅ تم حفظ التقارير:`);
-        console.log(`   📊 البيانات الكاملة: ${jsonPath}`);
-        console.log(`   📋 التقرير المفصل: ${reportPath}`);
-        console.log(`   🌐 التقرير المنسق: ${htmlPath}`);
+        return detailedReport;
     }
 
     generateDetailedReport(data) {

@@ -1738,12 +1738,31 @@ async function checkSingleTokenLiquidity(token) {
 
 let buyPrice = 0.5; // السعر الافتراضي
 
-const PORT = process.env.PORT || 1010;
+const PORT = process.env.PORT || 10000;
 const server = http.createServer(async (req, res) => {
   // Health check endpoint للتوافق مع Render
   if (req.method === "GET" && req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ status: "OK", timestamp: new Date().toISOString() }));
+    return;
+  }
+
+  // Ping endpoint للتحقق من حالة الخدمة
+  if (req.method === "GET" && req.url === "/ping") {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("pong");
+    return;
+  }
+
+  // Status endpoint للتحقق من حالة الخدمة
+  if (req.method === "GET" && req.url === "/status") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ 
+      status: "running", 
+      port: PORT,
+      timestamp: new Date().toISOString(),
+      tracked_tokens: Object.keys(trackedTokens).length
+    }));
     return;
   }
 
@@ -2669,11 +2688,34 @@ const server = http.createServer(async (req, res) => {
     `);
     return;
   }
+
+  // معالج للطلبات غير المعروفة
+  res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(`
+    <html lang="ar">
+    <head>
+      <title>404 - الصفحة غير موجودة</title>
+      <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f6fa; }
+        .error { background: white; border-radius: 10px; padding: 30px; max-width: 500px; margin: 0 auto; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+      </style>
+    </head>
+    <body>
+      <div class="error">
+        <h1>🚫 404 - الصفحة غير موجودة</h1>
+        <p>الرابط المطلوب غير متاح</p>
+        <a href="/" style="color: #0078D7; text-decoration: none; font-weight: bold;">🏠 العودة للصفحة الرئيسية</a>
+      </div>
+    </body>
+    </html>
+  `);
 });
 
-server.listen(PORT, async () => {
+server.listen(PORT, '0.0.0.0', async () => {
   console.log(`🌐 Server running on port ${PORT}`);
   console.log(`🔗 Token tracking link: http://localhost:${PORT}/track_token`);
+  console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+  console.log(`🔗 Status check: http://localhost:${PORT}/status`);
   
   // تفعيل الحذف التلقائي للتوكنات الخطيرة والتحذيرية كل ساعة
   startAutoDeletion();
@@ -2687,6 +2729,20 @@ server.listen(PORT, async () => {
       console.error('❌ خطأ في إعادة فحص التكوينات القديمة:', error.message);
     }
   }, 5000); // انتظار 5 ثوانٍ بعد بدء السيرفر
+}).on('error', (err) => {
+  console.error('❌ خطأ في الخادم:', err);
+  process.exit(1);
+});
+
+// معالجة الأخطاء غير المتوقعة
+process.on('uncaughtException', (err) => {
+  console.error('❌ خطأ غير متوقع:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ رفض غير معالج:', reason);
+  process.exit(1);
 });
 
 // دالة إرسال الرسائل للمجموعات

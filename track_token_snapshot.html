@@ -1,0 +1,420 @@
+
+      <html lang="ar">
+      <head>
+        <title>Token Tracker</title>
+        <meta http-equiv="refresh" content="10">
+        <style>
+          body { font-family: Tahoma, Arial, sans-serif; background: #f5f6fa; margin: 0; padding: 20px; direction: rtl; }
+          h2 { text-align: center; color: #0078D7; margin-top: 30px; letter-spacing: 1px; text-shadow: 1px 1px 2px rgba(0,0,0,0.1); }
+          .tokens-container { max-width: 800px; margin: 30px auto; padding: 0 10px; }
+          .token-card {
+            background: linear-gradient(145deg, #ffffff, #f8f9fa);
+            border: 2px solid #e1e8ed;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.06);
+            padding: 20px 25px;
+            margin-bottom: 25px;
+            border-radius: 15px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+          }
+          .token-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #0078D7, #1890ff, #52c41a);
+            opacity: 0.8;
+          }
+          .token-card:hover { 
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15), 0 4px 8px rgba(0,0,0,0.1);
+            border-color: #0078D7;
+          }
+          .token-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #f0f0f0;
+          }
+          .token-title {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #2c3e50;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+          }
+          .token-label { 
+            color: #34495e; 
+            font-weight: 600; 
+            display: inline-block; 
+            min-width: 170px;
+            font-size: 0.95em;
+          }
+          .token-value { color: #0078D7; font-weight: bold; }
+          .token-row { 
+            margin-bottom: 8px;
+            padding: 5px 0;
+            border-bottom: 1px dotted #e8e8e8;
+          }
+          .token-row:last-child {
+            border-bottom: none;
+          }
+          .delete-btn {
+            background: linear-gradient(145deg, #e53935, #d32f2f);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 16px;
+            font-size: 0.9em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+          }
+          .delete-btn:hover { 
+            background: linear-gradient(145deg, #d32f2f, #b71c1c);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+          }
+        </style>
+      </head>
+      <body>
+        <h2>متابعة التوكنات (Token Tracker)</h2>
+        <div style='text-align: center; margin-bottom: 20px; color: #666; font-size: 0.9em;'>
+          🔄 التوكنات محفوظة تلقائياً وتستمر المراقبة حتى بعد إعادة تشغيل البرنامج<br/>
+          🛡️ يتم التحقق من كل توكن على rugcheck.xyz: <span style="color: #4CAF50;">✅ آمن</span> | <span style="color: #FF9800;">🔶 تحذير</span> | <span style="color: #F44336;">⚠️ خطر</span> | <span style="color: #666;">❓ غير محقق</span><br/>
+          💧 يتم فحص السيولة من gmgn.ai: <span style="color: #4CAF50;">✅ سيولة طبيعية</span> | <span style="color: #FF5722;">⚠️ سيولة منخفضة</span> | <span style="color: #666;">❓ غير محققة</span><br/>
+          � قيمة SOL المستخرجة من رسالة الفرز الأصلية (الحد الأدنى: 10.00 SOL)<br/>
+          �🚫 <strong>المراقبة تتوقف تلقائياً عند اكتشاف سيولة منخفضة</strong>
+        </div>
+        <div style='text-align: center; margin-bottom: 15px; color: #FF6B6B; font-size: 0.9em; font-weight: bold;'>
+          🗑️ الحذف التلقائي للتوكنات الخطيرة والتحذيرية كل ساعة
+        </div>
+        <div style='text-align: center; margin-bottom: 20px;'>
+          <a href='/restart_all_tokens' style='
+            background: linear-gradient(45deg, #4CAF50, #8BC34A);
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            display: inline-block;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+            margin: 0 10px;
+          ' onmouseover='this.style.transform="translateY(-2px)"' onmouseout='this.style.transform="translateY(0)"'>
+            🔄 إعادة تشغيل جميع التوكنات
+          </a>
+          <a href='/recheck_tokens' style='
+            background: linear-gradient(45deg, #FF6B6B, #4ECDC4);
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            display: inline-block;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+            margin: 0 10px;
+          ' onmouseover='this.style.transform="translateY(-2px)"' onmouseout='this.style.transform="translateY(0)"'>
+            🔄 إعادة فحص التكوينات القديمة
+          </a>
+          <a href='/delete_dangerous_now' style='
+            background: linear-gradient(45deg, #F44336, #FF9800);
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            display: inline-block;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+            margin: 0 10px;
+          ' onmouseover='this.style.transform="translateY(-2px)"' onmouseout='this.style.transform="translateY(0)"'>
+            🗑️ حذف الخطيرة الآن (تلقائي كل ساعة)
+          </a>
+        </div>
+        <div class="tokens-container">
+        
+              <div class="token-card" data-token="4WZXsWacE1Ywyzaos5T3jYBBLHctmD65n1T4binXpump">
+                <div class="token-header">
+                  <span class="token-title">🔶 on chain rape awareness (metoo)</span>
+                  <div style="display: flex; gap: 5px;">
+                    <button class="recheck-btn" onclick="recheckRugcheck('4WZXsWacE1Ywyzaos5T3jYBBLHctmD65n1T4binXpump')" style="
+                      background: #2196F3;
+                      color: white;
+                      border: none;
+                      padding: 5px 10px;
+                      border-radius: 3px;
+                      cursor: pointer;
+                      font-size: 12px;
+                    ">🔄 إعادة فحص</button>
+                    <button class="delete-btn" onclick="deleteToken('4WZXsWacE1Ywyzaos5T3jYBBLHctmD65n1T4binXpump')">حذف</button>
+                  </div>
+                </div>
+                <div class="token-row"><span class="token-label">🔗 عنوان التوكن:</span> <span style="font-family: monospace; font-size: 0.85em; color: #666; word-break: break-all;">4WZXsWacE1Ywyzaos5T3jYBBLHctmD65n1T4binXpump</span></div>
+                <div class="token-row"><span class="token-label">🛡️ حالة rugcheck.xyz:</span> <span style="color: #4CAF50; font-weight: bold;">✅ آمن</span></div>
+                <div class="token-row"><span class="token-label">💧 السيولة:</span> <span style="color: #4CAF50; font-weight: bold;">✅ طبيعية</span></div>
+                <div class="token-row"><span class="token-label">� قيمة SOL:</span> <span style="color: #FF9800; font-weight: bold;">18.96 SOL</span></div>
+                <div class="token-row"><span class="token-label">�🕐 مدة المراقبة:</span> 04:28:09</div>
+                <div class="token-row"><span class="token-label">💰 السعر الأول:</span> 0.00008485$</div>
+                <div class="token-row"><span class="token-label">💰 السعر الحالي:</span> 0.00008686$</div>
+                <div class="token-row"><span class="token-label">📊 التغيير:</span> +2.37%</div>
+                <div class="token-row"><span class="token-label">📈 المقارنة:</span> 🔼 ارتفع 1.02x من السعر الأول</div>
+                <div class="token-row"><span class="token-label">🎯 حقق 50%:</span> ❌ لا</div>
+                <div class="token-row"><span class="token-label">⏰ بدء المراقبة:</span> ١٤‏/٨‏/٢٠٢٥، ١:٠٦:٢٠ ص</div>
+                
+              </div>
+            
+              <div class="token-card" data-token="3Sf6oKCeEqCuco4aYtKHHDTBYLAWHiL47QjvkW1UYDEG">
+                <div class="token-header">
+                  <span class="token-title">🔶 all you had to do was (nothing)</span>
+                  <div style="display: flex; gap: 5px;">
+                    <button class="recheck-btn" onclick="recheckRugcheck('3Sf6oKCeEqCuco4aYtKHHDTBYLAWHiL47QjvkW1UYDEG')" style="
+                      background: #2196F3;
+                      color: white;
+                      border: none;
+                      padding: 5px 10px;
+                      border-radius: 3px;
+                      cursor: pointer;
+                      font-size: 12px;
+                    ">🔄 إعادة فحص</button>
+                    <button class="delete-btn" onclick="deleteToken('3Sf6oKCeEqCuco4aYtKHHDTBYLAWHiL47QjvkW1UYDEG')">حذف</button>
+                  </div>
+                </div>
+                <div class="token-row"><span class="token-label">🔗 عنوان التوكن:</span> <span style="font-family: monospace; font-size: 0.85em; color: #666; word-break: break-all;">3Sf6oKCeEqCuco4aYtKHHDTBYLAWHiL47QjvkW1UYDEG</span></div>
+                <div class="token-row"><span class="token-label">🛡️ حالة rugcheck.xyz:</span> <span style="color: #4CAF50; font-weight: bold;">✅ آمن</span></div>
+                <div class="token-row"><span class="token-label">💧 السيولة:</span> <span style="color: #4CAF50; font-weight: bold;">✅ طبيعية</span></div>
+                <div class="token-row"><span class="token-label">� قيمة SOL:</span> <span style="color: #FF9800; font-weight: bold;">14.98 SOL</span></div>
+                <div class="token-row"><span class="token-label">�🕐 مدة المراقبة:</span> 04:31:45</div>
+                <div class="token-row"><span class="token-label">💰 السعر الأول:</span> 0.0009525$</div>
+                <div class="token-row"><span class="token-label">💰 السعر الحالي:</span> 0.00117$</div>
+                <div class="token-row"><span class="token-label">📊 التغيير:</span> +22.83%</div>
+                <div class="token-row"><span class="token-label">📈 المقارنة:</span> 🔼 ارتفع 1.23x من السعر الأول</div>
+                <div class="token-row"><span class="token-label">🎯 حقق 50%:</span> ❌ لا</div>
+                <div class="token-row"><span class="token-label">⏰ بدء المراقبة:</span> ١٤‏/٨‏/٢٠٢٥، ١:٠٢:٤٤ ص</div>
+                
+              </div>
+            
+              <div class="token-card" data-token="B1nFWSPP1S14FPcA3bZFG3sCuMmF3PK2qbzBkuxHpump">
+                <div class="token-header">
+                  <span class="token-title">✅️ Siri (Siri)</span>
+                  <div style="display: flex; gap: 5px;">
+                    <button class="recheck-btn" onclick="recheckRugcheck('B1nFWSPP1S14FPcA3bZFG3sCuMmF3PK2qbzBkuxHpump')" style="
+                      background: #2196F3;
+                      color: white;
+                      border: none;
+                      padding: 5px 10px;
+                      border-radius: 3px;
+                      cursor: pointer;
+                      font-size: 12px;
+                    ">🔄 إعادة فحص</button>
+                    <button class="delete-btn" onclick="deleteToken('B1nFWSPP1S14FPcA3bZFG3sCuMmF3PK2qbzBkuxHpump')">حذف</button>
+                  </div>
+                </div>
+                <div class="token-row"><span class="token-label">🔗 عنوان التوكن:</span> <span style="font-family: monospace; font-size: 0.85em; color: #666; word-break: break-all;">B1nFWSPP1S14FPcA3bZFG3sCuMmF3PK2qbzBkuxHpump</span></div>
+                <div class="token-row"><span class="token-label">🛡️ حالة rugcheck.xyz:</span> <span style="color: #4CAF50; font-weight: bold;">✅ آمن</span></div>
+                <div class="token-row"><span class="token-label">💧 السيولة:</span> <span style="color: #4CAF50; font-weight: bold;">✅ طبيعية</span></div>
+                <div class="token-row"><span class="token-label">� قيمة SOL:</span> <span style="color: #FF9800; font-weight: bold;">21.40 SOL</span></div>
+                <div class="token-row"><span class="token-label">�🕐 مدة المراقبة:</span> 04:43:50</div>
+                <div class="token-row"><span class="token-label">💰 السعر الأول:</span> 0.003419$</div>
+                <div class="token-row"><span class="token-label">💰 السعر الحالي:</span> 0.006704$</div>
+                <div class="token-row"><span class="token-label">📊 التغيير:</span> +96.08%</div>
+                <div class="token-row"><span class="token-label">📈 المقارنة:</span> 🔼 ارتفع 1.96x من السعر الأول</div>
+                <div class="token-row"><span class="token-label">🎯 حقق 50%:</span> ✅ نعم</div>
+                <div class="token-row"><span class="token-label">⏰ بدء المراقبة:</span> ١٤‏/٨‏/٢٠٢٥، ١٢:٥٠:٤٠ ص</div>
+                
+              </div>
+            
+              <div class="token-card" data-token="92P3mLFjBNChkpR6qKxpjYakuxJ1BXDZMbzHjf2YXuw1">
+                <div class="token-header">
+                  <span class="token-title">✅️ Aura The Cat (AURORA)</span>
+                  <div style="display: flex; gap: 5px;">
+                    <button class="recheck-btn" onclick="recheckRugcheck('92P3mLFjBNChkpR6qKxpjYakuxJ1BXDZMbzHjf2YXuw1')" style="
+                      background: #2196F3;
+                      color: white;
+                      border: none;
+                      padding: 5px 10px;
+                      border-radius: 3px;
+                      cursor: pointer;
+                      font-size: 12px;
+                    ">🔄 إعادة فحص</button>
+                    <button class="delete-btn" onclick="deleteToken('92P3mLFjBNChkpR6qKxpjYakuxJ1BXDZMbzHjf2YXuw1')">حذف</button>
+                  </div>
+                </div>
+                <div class="token-row"><span class="token-label">🔗 عنوان التوكن:</span> <span style="font-family: monospace; font-size: 0.85em; color: #666; word-break: break-all;">92P3mLFjBNChkpR6qKxpjYakuxJ1BXDZMbzHjf2YXuw1</span></div>
+                <div class="token-row"><span class="token-label">🛡️ حالة rugcheck.xyz:</span> <span style="color: #4CAF50; font-weight: bold;">✅ آمن</span></div>
+                <div class="token-row"><span class="token-label">💧 السيولة:</span> <span style="color: #4CAF50; font-weight: bold;">✅ طبيعية</span></div>
+                <div class="token-row"><span class="token-label">� قيمة SOL:</span> <span style="color: #FF9800; font-weight: bold;">11.60 SOL</span></div>
+                <div class="token-row"><span class="token-label">�🕐 مدة المراقبة:</span> 04:49:58</div>
+                <div class="token-row"><span class="token-label">💰 السعر الأول:</span> 0.0001384$</div>
+                <div class="token-row"><span class="token-label">💰 السعر الحالي:</span> 0.0004155$</div>
+                <div class="token-row"><span class="token-label">📊 التغيير:</span> +200.22%</div>
+                <div class="token-row"><span class="token-label">📈 المقارنة:</span> ⬆️ ارتفع 3.00x من السعر الأول</div>
+                <div class="token-row"><span class="token-label">🎯 حقق 50%:</span> ✅ نعم</div>
+                <div class="token-row"><span class="token-label">⏰ بدء المراقبة:</span> ١٤‏/٨‏/٢٠٢٥، ١٢:٤٤:٣١ ص</div>
+                
+              </div>
+            
+              <div class="token-card" data-token="8gFpUK3KTjCHhTMsCvkJ8E8mQ5jP3uqpHc65rjtHpump">
+                <div class="token-header">
+                  <span class="token-title">🔶 psa10 coin (grail)</span>
+                  <div style="display: flex; gap: 5px;">
+                    <button class="recheck-btn" onclick="recheckRugcheck('8gFpUK3KTjCHhTMsCvkJ8E8mQ5jP3uqpHc65rjtHpump')" style="
+                      background: #2196F3;
+                      color: white;
+                      border: none;
+                      padding: 5px 10px;
+                      border-radius: 3px;
+                      cursor: pointer;
+                      font-size: 12px;
+                    ">🔄 إعادة فحص</button>
+                    <button class="delete-btn" onclick="deleteToken('8gFpUK3KTjCHhTMsCvkJ8E8mQ5jP3uqpHc65rjtHpump')">حذف</button>
+                  </div>
+                </div>
+                <div class="token-row"><span class="token-label">🔗 عنوان التوكن:</span> <span style="font-family: monospace; font-size: 0.85em; color: #666; word-break: break-all;">8gFpUK3KTjCHhTMsCvkJ8E8mQ5jP3uqpHc65rjtHpump</span></div>
+                <div class="token-row"><span class="token-label">🛡️ حالة rugcheck.xyz:</span> <span style="color: #4CAF50; font-weight: bold;">✅ آمن</span></div>
+                <div class="token-row"><span class="token-label">💧 السيولة:</span> <span style="color: #4CAF50; font-weight: bold;">✅ طبيعية</span></div>
+                <div class="token-row"><span class="token-label">� قيمة SOL:</span> <span style="color: #FF9800; font-weight: bold;">29.94 SOL</span></div>
+                <div class="token-row"><span class="token-label">�🕐 مدة المراقبة:</span> 04:57:06</div>
+                <div class="token-row"><span class="token-label">💰 السعر الأول:</span> 0.0005312$</div>
+                <div class="token-row"><span class="token-label">💰 السعر الحالي:</span> 0.0006959$</div>
+                <div class="token-row"><span class="token-label">📊 التغيير:</span> +31.01%</div>
+                <div class="token-row"><span class="token-label">📈 المقارنة:</span> 🔼 ارتفع 1.31x من السعر الأول</div>
+                <div class="token-row"><span class="token-label">🎯 حقق 50%:</span> ❌ لا</div>
+                <div class="token-row"><span class="token-label">⏰ بدء المراقبة:</span> ١٤‏/٨‏/٢٠٢٥، ١٢:٣٧:٢٣ ص</div>
+                
+              </div>
+            
+              <div class="token-card" data-token="6bt9iC5ijSYUQbNTkYFfF2tESyyN33RrPtxB9CkQpump">
+                <div class="token-header">
+                  <span class="token-title">🔶 AMONGUS FOR SCALE (AMONGUS)</span>
+                  <div style="display: flex; gap: 5px;">
+                    <button class="recheck-btn" onclick="recheckRugcheck('6bt9iC5ijSYUQbNTkYFfF2tESyyN33RrPtxB9CkQpump')" style="
+                      background: #2196F3;
+                      color: white;
+                      border: none;
+                      padding: 5px 10px;
+                      border-radius: 3px;
+                      cursor: pointer;
+                      font-size: 12px;
+                    ">🔄 إعادة فحص</button>
+                    <button class="delete-btn" onclick="deleteToken('6bt9iC5ijSYUQbNTkYFfF2tESyyN33RrPtxB9CkQpump')">حذف</button>
+                  </div>
+                </div>
+                <div class="token-row"><span class="token-label">🔗 عنوان التوكن:</span> <span style="font-family: monospace; font-size: 0.85em; color: #666; word-break: break-all;">6bt9iC5ijSYUQbNTkYFfF2tESyyN33RrPtxB9CkQpump</span></div>
+                <div class="token-row"><span class="token-label">🛡️ حالة rugcheck.xyz:</span> <span style="color: #4CAF50; font-weight: bold;">✅ آمن</span></div>
+                <div class="token-row"><span class="token-label">💧 السيولة:</span> <span style="color: #4CAF50; font-weight: bold;">✅ طبيعية</span></div>
+                <div class="token-row"><span class="token-label">� قيمة SOL:</span> <span style="color: #FF9800; font-weight: bold;">14.88 SOL</span></div>
+                <div class="token-row"><span class="token-label">�🕐 مدة المراقبة:</span> 05:33:39</div>
+                <div class="token-row"><span class="token-label">💰 السعر الأول:</span> 0.0004339$</div>
+                <div class="token-row"><span class="token-label">💰 السعر الحالي:</span> 0.0004339$</div>
+                <div class="token-row"><span class="token-label">📊 التغيير:</span> +0.00%</div>
+                <div class="token-row"><span class="token-label">📈 المقارنة:</span> ➡️ لا تغيير في السعر</div>
+                <div class="token-row"><span class="token-label">🎯 حقق 50%:</span> ❌ لا</div>
+                <div class="token-row"><span class="token-label">⏰ بدء المراقبة:</span> ١٤‏/٨‏/٢٠٢٥، ١٢:٠٠:٥١ ص</div>
+                
+              </div>
+            
+              <div class="token-card" data-token="9tqjeRS1swj36Ee5C1iGiwAxjQJNGAVCzaTLwFY8bonk">
+                <div class="token-header">
+                  <span class="token-title">🔶 Ani Grok Companion (Ani)</span>
+                  <div style="display: flex; gap: 5px;">
+                    <button class="recheck-btn" onclick="recheckRugcheck('9tqjeRS1swj36Ee5C1iGiwAxjQJNGAVCzaTLwFY8bonk')" style="
+                      background: #2196F3;
+                      color: white;
+                      border: none;
+                      padding: 5px 10px;
+                      border-radius: 3px;
+                      cursor: pointer;
+                      font-size: 12px;
+                    ">🔄 إعادة فحص</button>
+                    <button class="delete-btn" onclick="deleteToken('9tqjeRS1swj36Ee5C1iGiwAxjQJNGAVCzaTLwFY8bonk')">حذف</button>
+                  </div>
+                </div>
+                <div class="token-row"><span class="token-label">🔗 عنوان التوكن:</span> <span style="font-family: monospace; font-size: 0.85em; color: #666; word-break: break-all;">9tqjeRS1swj36Ee5C1iGiwAxjQJNGAVCzaTLwFY8bonk</span></div>
+                <div class="token-row"><span class="token-label">🛡️ حالة rugcheck.xyz:</span> <span style="color: #4CAF50; font-weight: bold;">✅ آمن</span></div>
+                <div class="token-row"><span class="token-label">💧 السيولة:</span> <span style="color: #4CAF50; font-weight: bold;">✅ طبيعية</span></div>
+                <div class="token-row"><span class="token-label">� قيمة SOL:</span> <span style="color: #FF9800; font-weight: bold;">19.80 SOL</span></div>
+                <div class="token-row"><span class="token-label">�🕐 مدة المراقبة:</span> 05:42:52</div>
+                <div class="token-row"><span class="token-label">💰 السعر الأول:</span> 0.01991$</div>
+                <div class="token-row"><span class="token-label">💰 السعر الحالي:</span> 0.0209$</div>
+                <div class="token-row"><span class="token-label">📊 التغيير:</span> +4.97%</div>
+                <div class="token-row"><span class="token-label">📈 المقارنة:</span> 🔼 ارتفع 1.05x من السعر الأول</div>
+                <div class="token-row"><span class="token-label">🎯 حقق 50%:</span> ❌ لا</div>
+                <div class="token-row"><span class="token-label">⏰ بدء المراقبة:</span> ١٣‏/٨‏/٢٠٢٥، ١١:٥١:٣٨ م</div>
+                
+              </div>
+            
+              <div class="token-card" data-token="HLfrHJUygVy3biessPSQE2qrjHTGaiUuaqQRWELCbonk">
+                <div class="token-header">
+                  <span class="token-title">🚫 Im Not Useless (INU)</span>
+                  <div style="display: flex; gap: 5px;">
+                    <button class="recheck-btn" onclick="recheckRugcheck('HLfrHJUygVy3biessPSQE2qrjHTGaiUuaqQRWELCbonk')" style="
+                      background: #2196F3;
+                      color: white;
+                      border: none;
+                      padding: 5px 10px;
+                      border-radius: 3px;
+                      cursor: pointer;
+                      font-size: 12px;
+                    ">🔄 إعادة فحص</button>
+                    <button class="delete-btn" onclick="deleteToken('HLfrHJUygVy3biessPSQE2qrjHTGaiUuaqQRWELCbonk')">حذف</button>
+                  </div>
+                </div>
+                <div class="token-row"><span class="token-label">🔗 عنوان التوكن:</span> <span style="font-family: monospace; font-size: 0.85em; color: #666; word-break: break-all;">HLfrHJUygVy3biessPSQE2qrjHTGaiUuaqQRWELCbonk</span></div>
+                <div class="token-row"><span class="token-label">🛡️ حالة rugcheck.xyz:</span> <span style="color: #4CAF50; font-weight: bold;">✅ آمن</span></div>
+                <div class="token-row"><span class="token-label">💧 السيولة:</span> <span style="color: #FF5722; font-weight: bold;">⚠️ منخفضة</span></div>
+                <div class="token-row"><span class="token-label">� قيمة SOL:</span> <span style="color: #FF9800; font-weight: bold;">24.91 SOL</span></div>
+                <div class="token-row"><span class="token-label">�🕐 مدة المراقبة:</span> 06:53:12</div>
+                <div class="token-row"><span class="token-label">💰 السعر الأول:</span> جاري التحميل...</div>
+                <div class="token-row"><span class="token-label">💰 السعر الحالي:</span> جاري التحميل...</div>
+                <div class="token-row"><span class="token-label">📊 التغيير:</span> ...</div>
+                <div class="token-row"><span class="token-label">📈 المقارنة:</span> ...</div>
+                <div class="token-row"><span class="token-label">🎯 حقق 50%:</span> ❌ لا</div>
+                <div class="token-row"><span class="token-label">⏰ بدء المراقبة:</span> ١٣‏/٨‏/٢٠٢٥، ١٠:٤١:١٨ م</div>
+                <div class="token-row"><span class="token-label">🛑 السبب:</span> توقفت بسبب السيولة المنخفضة</div>
+              </div>
+            
+        </div>
+        
+        <script>
+          function deleteToken(token) {
+            // حذف مباشر بدون طلب موافقة
+            fetch('/delete-token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token })
+            })
+            .then(response => response.json())
+            .then(data => {
+              if (data.success) {
+                location.reload();
+              } else {
+                alert('فشل في الحذف: ' + data.error);
+              }
+            })
+            .catch(err => {
+              console.error('خطأ في الحذف:', err);
+              alert('خطأ في الاتصال: ' + err.message);
+            });
+          }
+          
+          function recheckRugcheck(token) {
+            if (confirm('هل تريد إعادة فحص rugcheck لهذا التوكن؟')) {
+              window.open('/recheck_rugcheck/' + token, '_blank');
+              // إعادة تحميل الصفحة بعد 3 ثوانٍ
+              setTimeout(() => location.reload(), 3000);
+            }
+          }
+          
+          // تحديث الصفحة كل 10 ثوانِ
+          setTimeout(() => location.reload(), 10000);
+        </script>
+      </body>
+    </html>
+    

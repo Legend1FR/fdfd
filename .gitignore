@@ -1,0 +1,13 @@
+node_modules
+node_modules - Copy/
+.puppeteer_cache/
+*.dll
+*.exe
+debug_*.html
+*_rugcheck*.html
+*_rugcheck*.json
+*_rugcheck*.txt
+execution_logs.txt
+login_logout_log.txt
+*Copy*
+*- Copy*

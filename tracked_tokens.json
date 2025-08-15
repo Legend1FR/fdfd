@@ -1,0 +1,380 @@
+{
+  "2WtK8z6uozWvaDqyTVUnEYC27G5VJQR7fVY8SMTEmidG": {
+    "token": "2WtK8z6uozWvaDqyTVUnEYC27G5VJQR7fVY8SMTEmidG",
+    "name": "TWINKIE",
+    "symbol": "TWINKIE",
+    "startTime": "2025-08-15T06:19:25.413Z",
+    "firstPrice": 0.0003108,
+    "lastPrice": 0.00001095,
+    "maxIncrease": 39.961389961389955,
+    "reached50": false,
+    "stopped": false,
+    "rugcheckStatus": "SAFE",
+    "lowLiquidity": false,
+    "solValue": 12,
+    "previousHighPrice": null,
+    "currentHighPrice": null,
+    "lastRiseTime": null,
+    "rapidRiseAchieved": false,
+    "priceRiseHistory": [],
+    "highestPrice": 0.000435,
+    "maxRisePercentage": 39.961389961389955,
+    "priceHistoryEvery20s": [
+      {
+        "price": 0.0003382,
+        "changePercent": 1.7448856799037238,
+        "timestamp": "2025-08-15T06:23:14.538Z"
+      },
+      {
+        "price": 0.0003347,
+        "changePercent": -1.0348905972797093,
+        "timestamp": "2025-08-15T06:23:35.920Z"
+      },
+      {
+        "price": 0.0003347,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T06:23:56.314Z"
+      },
+      {
+        "price": 0.0003407,
+        "changePercent": 1.792650134448755,
+        "timestamp": "2025-08-15T06:24:17.471Z"
+      },
+      {
+        "price": 0.0003407,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T06:24:38.449Z"
+      },
+      {
+        "price": 0.0003436,
+        "changePercent": 0.8511887290871782,
+        "timestamp": "2025-08-15T06:25:31.429Z"
+      },
+      {
+        "price": 0.0003436,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T06:25:51.927Z"
+      },
+      {
+        "price": 0.0003428,
+        "changePercent": -0.2328288707799824,
+        "timestamp": "2025-08-15T06:26:13.021Z"
+      },
+      {
+        "price": 0.000354,
+        "changePercent": 3.2672112018669783,
+        "timestamp": "2025-08-15T06:26:34.215Z"
+      },
+      {
+        "price": 0.000354,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T06:26:55.170Z"
+      },
+      {
+        "price": 0.000344,
+        "changePercent": -2.824858757062139,
+        "timestamp": "2025-08-15T06:27:16.116Z"
+      },
+      {
+        "price": 0.0003512,
+        "changePercent": 2.0930232558139568,
+        "timestamp": "2025-08-15T06:27:36.845Z"
+      },
+      {
+        "price": 0.0003512,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T06:27:57.666Z"
+      },
+      {
+        "price": 0.0003562,
+        "changePercent": 1.4236902050113778,
+        "timestamp": "2025-08-15T06:28:18.378Z"
+      },
+      {
+        "price": 0.0003562,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T06:28:38.762Z"
+      },
+      {
+        "price": 0.0003682,
+        "changePercent": 3.368893879842791,
+        "timestamp": "2025-08-15T06:29:00.101Z"
+      },
+      {
+        "price": 0.0003484,
+        "changePercent": -5.377512221618684,
+        "timestamp": "2025-08-15T06:29:20.996Z"
+      },
+      {
+        "price": 0.0003484,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T06:29:41.608Z"
+      },
+      {
+        "price": 0.0003648,
+        "changePercent": 4.7072330654420105,
+        "timestamp": "2025-08-15T06:30:02.318Z"
+      },
+      {
+        "price": 0.0003648,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T06:30:22.728Z"
+      },
+      {
+        "price": 0.0003715,
+        "changePercent": 1.836622807017544,
+        "timestamp": "2025-08-15T06:30:43.997Z"
+      },
+      {
+        "price": 0.0004049,
+        "changePercent": 8.990578734858682,
+        "timestamp": "2025-08-15T06:31:04.673Z"
+      },
+      {
+        "price": 0.0004049,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T06:31:25.396Z"
+      },
+      {
+        "price": 0.0004103,
+        "changePercent": 1.3336626327488326,
+        "timestamp": "2025-08-15T06:31:46.641Z"
+      },
+      {
+        "price": 0.0004162,
+        "changePercent": 1.4379722154521035,
+        "timestamp": "2025-08-15T06:32:08.048Z"
+      },
+      {
+        "price": 0.0004162,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T06:32:28.745Z"
+      },
+      {
+        "price": 0.000435,
+        "changePercent": 4.517059106198949,
+        "timestamp": "2025-08-15T06:32:49.429Z"
+      },
+      {
+        "price": 0.000435,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T06:33:09.774Z"
+      },
+      {
+        "price": 0.0004162,
+        "changePercent": -4.3218390804597755,
+        "timestamp": "2025-08-15T06:33:31.014Z"
+      },
+      {
+        "price": 0.0004141,
+        "changePercent": -0.5045651129264769,
+        "timestamp": "2025-08-15T06:33:52.253Z"
+      },
+      {
+        "price": 0.0004141,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T06:34:12.673Z"
+      },
+      {
+        "price": 0.0004254,
+        "changePercent": 2.728809466312486,
+        "timestamp": "2025-08-15T06:34:33.595Z"
+      },
+      {
+        "price": 0.0004282,
+        "changePercent": 0.6582040432534119,
+        "timestamp": "2025-08-15T06:34:54.255Z"
+      },
+      {
+        "price": 0.0004282,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T06:35:14.741Z"
+      },
+      {
+        "price": 0.00001122,
+        "changePercent": -97.37972909855208,
+        "timestamp": "2025-08-15T07:10:31.482Z"
+      },
+      {
+        "price": 0.00001122,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:10:52.259Z"
+      },
+      {
+        "price": 0.00001162,
+        "changePercent": 3.565062388591812,
+        "timestamp": "2025-08-15T07:11:13.633Z"
+      },
+      {
+        "price": 0.00001146,
+        "changePercent": -1.376936316695354,
+        "timestamp": "2025-08-15T07:11:34.807Z"
+      },
+      {
+        "price": 0.00001146,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:11:56.497Z"
+      },
+      {
+        "price": 0.00001146,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:12:17.590Z"
+      },
+      {
+        "price": 0.00001146,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:12:40.234Z"
+      },
+      {
+        "price": 0.00001146,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:13:01.590Z"
+      },
+      {
+        "price": 0.0000115,
+        "changePercent": 0.3490401396160525,
+        "timestamp": "2025-08-15T07:13:23.647Z"
+      },
+      {
+        "price": 0.00001049,
+        "changePercent": -8.782608695652177,
+        "timestamp": "2025-08-15T07:13:45.046Z"
+      },
+      {
+        "price": 0.00001049,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:14:06.243Z"
+      },
+      {
+        "price": 0.0000105,
+        "changePercent": 0.09532888465204867,
+        "timestamp": "2025-08-15T07:14:27.745Z"
+      },
+      {
+        "price": 0.00001052,
+        "changePercent": 0.19047619047618866,
+        "timestamp": "2025-08-15T07:14:57.325Z"
+      },
+      {
+        "price": 0.00001052,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:15:18.563Z"
+      },
+      {
+        "price": 0.00001047,
+        "changePercent": -0.47528517110265706,
+        "timestamp": "2025-08-15T07:15:39.817Z"
+      },
+      {
+        "price": 0.00001095,
+        "changePercent": 4.5845272206303775,
+        "timestamp": "2025-08-15T07:16:01.444Z"
+      }
+    ],
+    "lastPriceUpdate20s": "2025-08-15T07:16:01.444Z"
+  },
+  "HQPMEbkZmwxCscm6wQmDXc5Ywyft7aRsbKdooh6Ldr8a": {
+    "token": "HQPMEbkZmwxCscm6wQmDXc5Ywyft7aRsbKdooh6Ldr8a",
+    "name": "Ceylon",
+    "symbol": "RS",
+    "startTime": "2025-08-15T07:10:43.380Z",
+    "firstPrice": 0.000001357,
+    "lastPrice": 0.000001357,
+    "maxIncrease": 0,
+    "reached50": false,
+    "stopped": false,
+    "rugcheckStatus": "SAFE",
+    "lowLiquidity": false,
+    "solValue": 10.36,
+    "previousHighPrice": null,
+    "currentHighPrice": null,
+    "lastRiseTime": null,
+    "rapidRiseAchieved": false,
+    "priceRiseHistory": [],
+    "highestPrice": 0.000001357,
+    "maxRisePercentage": 0,
+    "priceHistoryEvery20s": [
+      {
+        "price": 0.000001357,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:10:44.471Z"
+      },
+      {
+        "price": 0.000001357,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:11:04.766Z"
+      },
+      {
+        "price": 0.000001357,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:11:25.829Z"
+      },
+      {
+        "price": 0.000001357,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:11:47.584Z"
+      },
+      {
+        "price": 0.000001357,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:12:08.170Z"
+      },
+      {
+        "price": 0.000001357,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:12:28.958Z"
+      },
+      {
+        "price": 0.000001357,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:12:52.717Z"
+      },
+      {
+        "price": 0.000001357,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:13:14.343Z"
+      },
+      {
+        "price": 0.000001357,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:13:34.887Z"
+      },
+      {
+        "price": 0.000001357,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:13:56.306Z"
+      },
+      {
+        "price": 0.000001357,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:14:16.899Z"
+      },
+      {
+        "price": 0.000001357,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:14:37.986Z"
+      },
+      {
+        "price": 0.000001357,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:15:07.772Z"
+      },
+      {
+        "price": 0.000001357,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:15:28.968Z"
+      },
+      {
+        "price": 0.000001357,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:15:50.485Z"
+      },
+      {
+        "price": 0.000001357,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T07:16:11.890Z"
+      }
+    ],
+    "lastPriceUpdate20s": "2025-08-15T07:16:11.890Z"
+  }
+}

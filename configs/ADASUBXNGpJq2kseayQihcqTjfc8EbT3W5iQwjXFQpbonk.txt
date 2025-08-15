@@ -1,0 +1,11 @@
+ADASUBXNGpJq2kseayQihcqTjfc8EbT3W5iQwjXFQpbonk : Counts: 1
+Counts: 2 To Counts: 1 = 23second
+Counts: 2 To Counts: 2 = 88second
+Counts: 3 To Counts: 2 = 23second
+Counts: 4 To Counts: 3 = 16second
+Counts: 5 To Counts: 4 = 34second
+Counts: 7 To Counts: 5 = 17second
+Counts: 8 To Counts: 7 = 18second
+Counts: 67 To Counts: 8 = 21second
+Counts: 60 To Counts: 67 = 14second
+ناجح ✅️

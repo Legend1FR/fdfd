@@ -1,0 +1,152 @@
+const { TelegramClient } = require("telegram");
+const { StringSession } = require("telegram/sessions");
+const fs = require("fs");
+const input = require("input");
+const http = require("http");
+const https = require("https");
+
+
+const PHONE_NUMBER = "+967781430676"; // ضع رقمك هنا
+const PASSWORD = "YOUR_PASSWORD"; // إذا كان لديك كلمة مرور 2FA
+const PHONE_CODE = undefined; // يمكن تركه undefined ليتم تجاهله
+
+const apiId = 23299626;
+const apiHash = "89de50a19288ec535e8b008ae2ff268d";
+
+console.log("🚀 البوت يعمل الآن 24 ساعة على السيرفر!");
+
+// دالة لتسجيل الدخول والخروج
+function logLoginLogout(type) {
+  const logFile = 'login_logout_log.txt';
+  const now = new Date().toISOString();
+  fs.appendFileSync(logFile, `${type},${now}\n`, 'utf8');
+}
+
+// تسجيل الدخول
+logLoginLogout('login');
+
+// نحاول تحميل الجلسة من ملف
+let stringSession = new StringSession("");
+
+if (fs.existsSync("session.txt")) {
+  const savedSession = fs.readFileSync("session.txt", "utf8");
+  stringSession = new StringSession(savedSession.trim());
+}
+
+// تعريف الكائن client في النطاق العام
+const client = new TelegramClient(stringSession, apiId, apiHash, {
+  connectionRetries: 5,
+});
+
+(async () => {
+  console.log("📲 بدء الاتصال بتليجرام...");
+
+  // تسجيل الدخول عند الحاجة فقط
+  await client.start({
+    phoneNumber: async () => PHONE_NUMBER,
+    password: async () => PASSWORD,
+    phoneCode: async () => await input.text("أدخل كود التحقق من تيليجرام:"),
+    onError: (err) => console.log("❌ خطأ:", err),
+  });
+
+  console.log("✅ تم تسجيل الدخول!");
+  const sessionString = client.session.save();
+
+  // حفظ الجلسة للاستخدام التالي
+  fs.writeFileSync("session.txt", sessionString);
+  console.log("💾 تم حفظ الجلسة في session.txt");
+
+  await client.sendMessage("me", { message: "🚀 بوت الإشعارات شغال!" });
+})();
+
+// دالة تأخير بسيطة
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+const PORT = process.env.PORT || 3100;
+http.createServer((req, res) => {
+  // حساب عدد مرات الدخول والخروج خلال آخر 24 ساعة
+  let count = 0;
+  try {
+    const logFile = 'login_logout_log.txt';
+    if (fs.existsSync(logFile)) {
+      const logs = fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean);
+      const now = Date.now();
+      const oneDay = 24 * 60 * 60 * 1000;
+      count = logs.filter(line => {
+        const [, time] = line.split(',');
+        return now - new Date(time).getTime() <= oneDay;
+      }).length;
+    }
+  } catch {}
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(`
+    <div style='text-align:center;'>
+      <div style='font-size:2em;'>🚀 البوت يعمل الآن 24 ساعة على السيرفر!</div>
+      <div style='margin-top:20px; font-size:3em; color:#0078D7; font-weight:bold;'>عدد مرات تسجيل الدخول والخروج خلال 24 ساعة: ${count}</div>
+    </div>
+  `);
+}).listen(PORT, () => {
+  console.log(`🌐 HTTP Server running on port ${PORT}`);
+});
+
+const KEEP_ALIVE_URL = "https://cdcdcd.onrender.com/";
+setInterval(() => {
+  https.get(KEEP_ALIVE_URL, (res) => {
+    console.log(`🔄 Keep Alive Ping: ${KEEP_ALIVE_URL} - Status: ${res.statusCode}`);
+  }).on("error", (e) => {
+    console.error(`❌ Keep Alive Error: ${e.message}`);
+  });
+}, 10 * 60 * 1000); // كل 10 دقائق
+
+// تسجيل الخروج عند إنهاء العملية
+process.on('exit', () => {
+  logLoginLogout('logout');
+});
+process.on('SIGINT', () => {
+  logLoginLogout('logout');
+  process.exit();
+});
+
+// تعديل لجعل البحث يشمل جميع الرسائل الواردة
+const tokenData = {}; // تخزين بيانات التوكنات مؤقتًا
+
+client.addEventHandler(async (update) => {
+  try {
+    if (update.message && typeof update.message.message === "string") {
+      const msg = update.message;
+      const text = msg.message;
+
+      // التحقق من الرسائل التي تحتوي على "COUNTS: X"
+      const countMatch = text.match(/COUNTS:\s*(\d+)/i);
+      const tokenMatch = text.match(/ca:\s*([\w]+)/i);
+
+      if (countMatch && tokenMatch) {
+        const count = parseInt(countMatch[1], 10);
+        const token = tokenMatch[1];
+        const now = Date.now();
+
+        // إذا كانت الرسالة الأولى "COUNTS: 1"
+        if (count === 1) {
+          tokenData[token] = [{ count, timestamp: now }];
+          fs.writeFileSync(`${token}.txt`, `${token} : Counts: 1\n`, 'utf8');
+        } else if (tokenData[token]) {
+          // إذا كانت الرسالة تحتوي على "COUNTS: X" حيث X > 1
+          const previous = tokenData[token][tokenData[token].length - 1];
+          const timeDiff = Math.round((now - previous.timestamp) / 1000); // الفرق بالثواني
+
+          // تحديث البيانات وحفظها في الملف
+          tokenData[token].push({ count, timestamp: now });
+          fs.appendFileSync(
+            `${token}.txt`,
+            `Counts: ${count} To Counts: ${previous.count} = ${timeDiff}second\n`,
+            'utf8'
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.error("❌ خطأ أثناء التوجيه:", err.message);
+  }
+});

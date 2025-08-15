@@ -1,0 +1,11 @@
+11ZAZZZZZAZu121155izF1J48PzGTJMHb738yg2VWfj4SfPZksYpsQbwmMU : Counts: 1
+Counts: 2 To Counts: 1 = 31second
+Counts: 2 To Counts: 2 = 21second
+Counts: 3 To Counts: 2 = 25second
+Counts: 6 To Counts: 3 = 27second
+Counts: 9 To Counts: 6 = 46second
+Counts: 90 To Counts: 9 = 49second
+Counts: 70 To Counts: 90 = 28second
+Counts: 42 To Counts: 70 = 20second
+Counts: 42 To Counts: 42 = 16second
+ناجح ✅️

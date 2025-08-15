@@ -1,0 +1,5 @@
+oHiNybJSDTU8m77oG9adzcxGVkG4sQybccufZDFYSut : Counts: 1
+Counts: 2 To Counts: 1 = 14second
+Counts: 2 To Counts: 2 = 10second
+Counts: 50 To Counts: 2 = 12second
+Counts: 3 To Counts: 50 = 11second

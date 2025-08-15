@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: telegram-bot
+    env: docker
+    repo: https://github.com/Legend1fr/fdfd.git
+    region: oregon
+    plan: starter
+    branch: master
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PUPPETEER_CACHE_DIR
+        value: "/home/pptruser/.cache/puppeteer"
+      - key: PUPPETEER_EXECUTABLE_PATH
+        value: "/usr/bin/google-chrome-stable"
+      - key: RENDER_EXTERNAL_URL
+        value: "https://cdcdcd.onrender.com"
+      - key: TZ
+        value: "UTC"
+    buildCommand: npm ci --only=production
+    startCommand: node server.js
+    healthCheckPath: /health
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1

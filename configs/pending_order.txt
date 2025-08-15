@@ -1,0 +1,2 @@
+
+/create limitbuy HyU6PuA4oDPxnEpP7E3MGc4u6MQ4m31LZihTF7RPbonk 0.5@0.030110 -exp 86400

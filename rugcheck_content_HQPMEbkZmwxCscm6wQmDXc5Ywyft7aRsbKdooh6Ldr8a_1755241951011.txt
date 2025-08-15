@@ -1,0 +1,64 @@
+RugCheck
+🔍 HOME
+📊 TOKENS
+🛡️VERIFY New
+🧰 INTEGRATIONS New
+💱 DEX
+
+Ceylon
+📍 Address
+🔍 Search
+
+💰 TRADE
+$0.00052612931
+Risk Analysis
+10 / 100
+Danger
+Low amount of LP Providers
+Only a few users are providing liquidity
+Insider Analysis BETA
+0% supply sent to 0 wallets
+Network sent 0% of the supply to 0 wallets (unknown-network)
+Launch Insights BETA
+Anomaly Found
+Token Overview
+Supply	4000B
+Creator	EkSn...EkSn52uFS4fYJEcAHPUSm8C7LuhVuvtKmEBwiQq1Psm2
+Creator Balance	SOLD
+Market Cap	$526K
+Holders	20
+Mint Authority	-
+LP Locked	0.00%
+Markets
+1
+Address	Pair	LP Mint	Liquidity	LP Locked
+unknown	SOL/HQPMEbkZmwxCscm6wQmDXc5Ywyft7aRsbKdooh6Ldr8a	-	$3.4	$3.5	0.00%
+Community Sentiment
+Insider Networks BETA
+Name	Accs	Tokens
+unknown-network	XFER	0	0
+Top Holders
+100.00%
+Account	Amnt	%
+DQDa...DQDanrkaiahmv3KG5rLugYXPfPKVTju3fmt21JQMHjPm	1022.3B	25.56%
+5YuL...5YuLsjJAE6dMn7jP1gW9ojC7xHmcDLi2vE1vuT9TGPCm	1001.9B	25.05%
+6uVg...6uVgNEytaVjkpBfLhihjEgtyowTARqpTKyKrnE4Robqu	507.7B	12.69%
+H28d...H28doNwQFFHyDWt9UDVvQdJeGU687R3Dc2WyeNqx6nRs	402.5B	10.06%
+2Ee5...2Ee5pp2t334XKCDa6Wkx1Eud5fjjvvnnN74UUFA8kH1Y	400.0B	10.00%
+55hF...55hFmiiFKdxJUSoezzgqMh2A7tvkkRzvSZbaxzCyiugj	374.8B	9.37%
+2The...2TheDtw3MeMjMs5rKVDkFKhLLWM1T7vgPLgrZVs5y7EL	31.5B	0.79%
+8s9j...8s9j5qUtuE9PGA5s7QeAXEh5oc2UGr71pmJXgyiZMHkt	25.3B	0.63%
+B9y1...B9y13zeXSGso2RunTpDYaq2RRCzFCGJrX8GntbgB6cQF	23.3B	0.58%
+GpMZ...GpMZbSM2GgvTKHJirzeGfMFoaZ8UR2X7F4v8vHTvxFbL	20.1B	0.50%
+Go3v...Go3vN3VRcaGnvtaMjWrQ5DLdfp8FfCHUxydY8nvw7VGd	14.0B	0.35%
+FQer...FQerDb8ghkjyeC5wN8h8nGnPBpas3jFBwQEB3Rei5k5Y	12.6B	0.31%
+GAwQ...GAwQDrP5FaJqUT4BBVXA83ZfXGiRyX8evrXWb2jSdoML	8.4B	0.21%
+BhuY...BhuYB2Q3Yk9m2WSxab11W32KETkErGxnDSaSHUUgyRu8	8.0B	0.20%
+DE5e...DE5eMEGcvGLgftYcmcnVaRK2L3uxgq1mjyfKPrNYi6JC	7.3B	0.18%
+6iwa...6iwaPvYnbk3uyhRHypExhZtEPL1z8dB66J6PDwFoKWzd	7.0B	0.17%
+ALRn...ALRngXYjxw4cwvyj6mgT4DkwReNnq668rYxRtKZEu7Mm	5.4B	0.13%
+26UT...26UT91kv25DAJ4L1GQ1pog31qB2XrCgPnkDjdLyy7ZpC	4.5B	0.11%
+EGPu...EGPuPnaXbc79TtXxC8UbVkz5mEpJFoRZSBkEMXsgUKAJ	3.8B	0.09%
+DdZA...DdZAUBWsVEBuac2F79MENFohcPiarUwmstX5qbe6MmXx	3.7B	0.09%
+RugCheck
+ABOUT|TOKENS|LAUNCH TOOLS|API|INTEGRATIONS

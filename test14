@@ -1,0 +1,199 @@
+const { TelegramClient } = require("telegram");
+const { StringSession } = require("telegram/sessions");
+const fs = require("fs");
+const input = require("input");
+const http = require("http");
+const https = require("https");
+
+// بيانات الدخول تلقائية للسيرفر
+const PHONE_NUMBER = "+966XXXXXXXXX";  // ضع رقمك هنا
+const PASSWORD = "YOUR_PASSWORD"; // إذا كان لديك كلمة مرور 2FA
+const PHONE_CODE = undefined; // يمكن تركه undefined ليتم تجاهله
+
+const apiId = 23299626;
+const apiHash = "89de50a19288ec535e8b008ae2ff268d";
+
+console.log("🚀 البوت يعمل الآن 24 ساعة على السيرفر!");
+
+// دالة لتسجيل الدخول والخروج
+function logLoginLogout(type) {
+  const logFile = 'login_logout_log.txt';
+  const now = new Date().toISOString();
+  fs.appendFileSync(logFile, `${type},${now}\n`, 'utf8');
+}
+
+// تسجيل الدخول
+logLoginLogout('login');
+
+// نحاول تحميل الجلسة من ملف
+let stringSession = new StringSession("");
+
+if (fs.existsSync("session.txt")) {
+  const savedSession = fs.readFileSync("session.txt", "utf8");
+  stringSession = new StringSession(savedSession.trim());
+}
+
+(async () => {
+  console.log("📲 بدء الاتصال بتليجرام...");
+  const client = new TelegramClient(stringSession, apiId, apiHash, {
+    connectionRetries: 5,
+  });
+
+  // تسجيل الدخول عند الحاجة فقط
+  await client.start({
+    phoneNumber: async () => PHONE_NUMBER,
+    password: async () => PASSWORD,
+    phoneCode: async () => PHONE_CODE,
+    onError: (err) => console.log("❌ خطأ:", err),
+  });
+
+  console.log("✅ تم تسجيل الدخول!");
+  const sessionString = client.session.save();
+
+  // حفظ الجلسة للاستخدام التالي
+  fs.writeFileSync("session.txt", sessionString);
+  console.log("💾 تم حفظ الجلسة في session.txt");
+
+  await client.sendMessage("me", { message: "🚀 بوت الإشعارات شغال!" });
+
+  // تحقق من الانضمام للبوتات المطلوبة مرة واحدة فقط في الحياة
+  const joinedBotsFile = 'joined_bots.txt';
+  if (!fs.existsSync(joinedBotsFile)) {
+    try {
+      // قائمة البوتات المطلوبة
+      const botsToJoin = ['GMGN_sol_bot', 'solBigamout'];
+      for (const bot of botsToJoin) {
+        // أرسل فقط للبوتات التي تنتهي بـ _bot
+        if (bot.endsWith('_bot')) {
+          await client.sendMessage(bot, { message: '/start' });
+          await sleep(2000);
+        } else {
+          console.log(`⚠️ تخطي ${bot}: ليس بوت تليجرام.`);
+        }
+      }
+      fs.writeFileSync(joinedBotsFile, 'done');
+      console.log('✅ تم الانضمام لكل البوتات المطلوبة لأول مرة.');
+    } catch (err) {
+      console.error('❌ خطأ أثناء الانضمام للبوتات:', err.message);
+    }
+  }
+
+  // التتبع والتوجيه
+  client.addEventHandler(async (update) => {
+    try {
+      // استقبال كل الرسائل النصية الحقيقية من أي جهة
+      if (update.message && typeof update.message.message === "string") {
+        const msg = update.message;
+        const text = msg.message;
+        // فلترة الرسائل التي تحتوي فقط على "counts: 1" (وليس 11 أو 14)
+        if (/counts:\s*1(\D|$)/.test(text)) {
+          // استخراج التوكن بعد ca:
+          const caMatch = text.match(/ca:\s*([\w]+)/);
+          if (caMatch && caMatch[1]) {
+            const token = caMatch[1];
+            // طباعة التوكن فقط بدون ca:
+            console.log(token);
+            // حفظ التوكن في ملف لاستخدامه في بوت sniperoo
+            fs.writeFileSync('last_token.txt', token, 'utf8');
+
+            // بدء التداول في بوت GMGN
+            await tradeInGMGNBot(client, token);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("❌ خطأ أثناء التوجيه:", err.message);
+    }
+  });
+})();
+
+// دالة التداول التلقائي في بوت GMGN
+async function tradeInGMGNBot(client, token) {
+  const botUsername = 'GMGN_sol_bot';
+  const lastStartFile = 'gmgn_last_start.txt';
+  let shouldSendStart = true;
+  try {
+    // تحقق من آخر إرسال لـ /start
+    if (fs.existsSync(lastStartFile)) {
+      const lastStartDate = fs.readFileSync(lastStartFile, 'utf8').trim();
+      const today = new Date().toISOString().slice(0, 10);
+      if (lastStartDate === today) {
+        shouldSendStart = false;
+      }
+    }
+    // إرسال /start مرة واحدة فقط يومياً
+    if (shouldSendStart) {
+      await client.sendMessage(botUsername, { message: '/start' });
+      fs.writeFileSync(lastStartFile, new Date().toISOString().slice(0, 10));
+      await sleep(2000);
+    }
+    // إرسال التوكن
+    await client.sendMessage(botUsername, { message: token });
+    console.log('✅ تم إرسال التكوين:', token);
+
+    // استقبال جميع الرسائل من بوت GMGN
+    const handler = async (update) => {
+      if (update.message && update.message.peerId && update.message.peerId.userId &&
+          update.message.peerId.userId.toString().includes('GMGN')) {
+        console.log('📩 رسالة من بوت GMGN:', update.message.message);
+      }
+    };
+    client.addEventHandler(handler);
+
+    // انتظار لبعض الوقت للسماح باستقبال الرسائل
+    await sleep(20000); // الانتظار لمدة 20 ثانية
+    client.removeEventHandler(handler);
+  } catch (err) {
+    console.error('❌ خطأ في إرسال التكوين إلى GMGN:', err.message);
+  }
+}
+
+// دالة تأخير بسيطة
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+  // حساب عدد مرات الدخول والخروج خلال آخر 24 ساعة
+  let count = 0;
+  try {
+    const logFile = 'login_logout_log.txt';
+    if (fs.existsSync(logFile)) {
+      const logs = fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean);
+      const now = Date.now();
+      const oneDay = 24 * 60 * 60 * 1000;
+      count = logs.filter(line => {
+        const [, time] = line.split(',');
+        return now - new Date(time).getTime() <= oneDay;
+      }).length;
+    }
+  } catch {}
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(`
+    <div style='text-align:center;'>
+      <div style='font-size:2em;'>🚀 البوت يعمل الآن 24 ساعة على السيرفر!</div>
+      <div style='margin-top:20px; font-size:3em; color:#0078D7; font-weight:bold;'>عدد مرات تسجيل الدخول والخروج خلال 24 ساعة: ${count}</div>
+    </div>
+  `);
+}).listen(PORT, () => {
+  console.log(`🌐 HTTP Server running on port ${PORT}`);
+});
+
+const KEEP_ALIVE_URL = "https://cdcd.onrender.com/";
+setInterval(() => {
+  https.get(KEEP_ALIVE_URL, (res) => {
+    console.log(`🔄 Keep Alive Ping: ${KEEP_ALIVE_URL} - Status: ${res.statusCode}`);
+  }).on("error", (e) => {
+    console.error(`❌ Keep Alive Error: ${e.message}`);
+  });
+}, 10 * 60 * 1000); // كل 10 دقائق
+
+// تسجيل الخروج عند إنهاء العملية
+process.on('exit', () => {
+  logLoginLogout('logout');
+});
+process.on('SIGINT', () => {
+  logLoginLogout('logout');
+  process.exit();
+});

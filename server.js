@@ -1,0 +1,2644 @@
+const { TelegramClient } = require("telegram");
+const { StringSession } = require("telegram/sessions");
+const fs = require("fs");
+const input = require("input");
+const http = require("http");
+const https = require("https");
+
+const { performance } = require('perf_hooks');
+
+/*
+ * تحديث: نظام مراقبة الأسعار المحسن مع نظام فحص rugcheck متطور
+ * - تم حذف استخدام Puppeteer نهائياً لتحسين الأداء والسرعة
+ * - استخدام APIs مباشرة لجلب الأسعار (DexScreener + CoinGecko)
+ * - نظام فحص rugcheck متطور باستخدام rugcheck_content_extractor.js
+ * - تصنيف التوكنات بناءً على النقاط من 100 فقط:
+ *   • 0-9 نقطة: آمن جداً ✅
+ *   • 10-20 نقطة: آمن ✅ 
+ *   • 21-34 نقطة: تحذيري ⚠️
+ *   • 35+ نقطة: خطر 🔴
+ * - الحذف التلقائي للتوكنات الخطيرة والتحذيرية
+ * - يتم حذف التوكنات التي تحمل حالة DANGER أو WARNING فوراً عند اكتشافها
+ * - يتم حذف التوكنات ذات السيولة المنخفضة فوراً 
+ * - التنظيف التلقائي يعمل كل دقيقة للتأكد من عدم وجود توكنات خطيرة
+ * - نظام أسرع وأكثر استقراراً ودقة
+ */
+
+// قائمة التوكنات المراقبة
+const trackedTokens = {};
+
+// متغير عام للعميل تيليجرام لاستخدامه في الوظائف المختلفة
+let globalClient = null;
+
+// حد أقصى لعدد التوكنات المراقبة في نفس الوقت
+const MAX_TRACKED_TOKENS = 100;
+
+// ملف حفظ التوكنات المتتبعة
+const trackedTokensFile = 'tracked_tokens.json';
+
+// قائمة التوكنات التي تم إرسالها لتجنب الإرسال المكرر
+const sentTokens = new Set();
+const sentTokensFile = 'sent_tokens.txt';
+
+// مخزن مؤقت لسجلات وقت التنفيذ
+const executionLogsBuffer = [];
+
+// تحميل التوكنات المرسلة من الملف
+function loadSentTokens() {
+  try {
+    if (fs.existsSync(sentTokensFile)) {
+      const data = fs.readFileSync(sentTokensFile, 'utf8');
+      const tokens = data.split('\n').filter(token => token.trim());
+      tokens.forEach(token => sentTokens.add(token.trim()));
+      console.log(`📨 Loaded ${tokens.length} sent tokens from file`);
+    }
+  } catch (error) {
+    console.error('❌ خطأ في تحميل التوكنات المرسلة:', error.message);
+  }
+}
+
+// حفظ التوكنات المرسلة إلى الملف
+function saveSentTokens() {
+  try {
+    const tokensArray = Array.from(sentTokens);
+    fs.writeFileSync(sentTokensFile, tokensArray.join('\n') + '\n', 'utf8');
+    console.log(`💾 تم حفظ ${tokensArray.length} توكن مرسل`);
+  } catch (error) {
+    console.error('❌ خطأ في حفظ التوكنات المرسلة:', error.message);
+  }
+}
+
+// جلب بيانات التوكن من DexScreener API
+async function fetchTokenInfo(token) {
+  return new Promise((resolve) => {
+    try {
+      const apiOptions = {
+        hostname: 'api.dexscreener.com',
+        port: 443,
+        path: `/latest/dex/tokens/${token}`,
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': 'application/json',
+        }
+      };
+      
+      const req = https.request(apiOptions, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          try {
+            const jsonData = JSON.parse(data);
+            if (jsonData.pairs && jsonData.pairs.length > 0) {
+              const pair = jsonData.pairs[0];
+              const name = pair.baseToken?.name || null;
+              const symbol = pair.baseToken?.symbol || null;
+              
+              if (name || symbol) {
+                // تحديث معلومات التوكن
+                if (trackedTokens[token]) {
+                  trackedTokens[token].name = name;
+                  trackedTokens[token].symbol = symbol;
+                  saveTrackedTokens();
+                  console.log(`[${token}] تم جلب معلومات التوكن: ${name} (${symbol})`);
+                }
+                resolve({ name, symbol });
+              } else {
+                resolve(null);
+              }
+            } else {
+              resolve(null);
+            }
+          } catch (parseError) {
+            console.log(`[${token}] خطأ في تحليل JSON لمعلومات التوكن: ${parseError.message}`);
+            resolve(null);
+          }
+        });
+      });
+      
+      req.on('error', (error) => {
+        console.log(`[${token}] خطأ في طلب API لمعلومات التوكن: ${error.message}`);
+        resolve(null);
+      });
+      
+      req.setTimeout(10000, () => {
+        console.log(`[${token}] انتهت مهلة طلب API لمعلومات التوكن`);
+        req.abort();
+        resolve(null);
+      });
+      
+      req.end();
+    } catch (error) {
+      console.log(`[${token}] فشل في طلب معلومات التوكن: ${error.message}`);
+      resolve(null);
+    }
+  });
+}
+
+// دالة جلب السعر المبسطة باستخدام APIs متعددة
+async function getTokenPriceSimple(token) {
+  console.log(`[${token}] 💰 Fetching price...`);
+  
+  try {
+    // قائمة APIs للحصول على السعر
+    const priceAPIs = [
+      {
+        name: 'DexScreener',
+        hostname: 'api.dexscreener.com',
+        path: `/latest/dex/tokens/${token}`,
+        parser: (data) => {
+          if (data.pairs && data.pairs.length > 0) {
+            return parseFloat(data.pairs[0].priceUsd);
+          }
+          return null;
+        }
+      },
+      {
+        name: 'CoinGecko',
+        hostname: 'api.coingecko.com',
+        path: `/api/v3/simple/token_price/solana?contract_addresses=${token}&vs_currencies=usd`,
+        parser: (data) => {
+          if (data[token] && data[token].usd) {
+            return parseFloat(data[token].usd);
+          }
+          return null;
+        }
+      }
+    ];
+
+    for (const api of priceAPIs) {
+      try {
+        console.log(`[${token}] محاولة ${api.name}...`);
+        
+        const options = {
+          hostname: api.hostname,
+          port: 443,
+          path: api.path,
+          method: 'GET',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json',
+          }
+        };
+
+        const price = await new Promise((resolve) => {
+          const req = https.request(options, (res) => {
+            let data = '';
+            res.on('data', (chunk) => { data += chunk; });
+            res.on('end', () => {
+              try {
+                const jsonData = JSON.parse(data);
+                const price = api.parser(jsonData);
+                resolve(price);
+              } catch (parseError) {
+                console.log(`[${token}] خطأ في تحليل ${api.name}: ${parseError.message}`);
+                resolve(null);
+              }
+            });
+          });
+
+          req.on('error', (error) => {
+            console.log(`[${token}] خطأ في ${api.name}: ${error.message}`);
+            resolve(null);
+          });
+
+          req.setTimeout(8000, () => {
+            console.log(`[${token}] انتهت مهلة ${api.name}`);
+            req.abort();
+            resolve(null);
+          });
+
+          req.end();
+        });
+
+        if (price && price > 0) {
+          console.log(`[${token}] ✅ تم جلب السعر من ${api.name}: $${price}`);
+          return price;
+        }
+
+      } catch (apiError) {
+        console.log(`[${token}] فشل ${api.name}: ${apiError.message}`);
+        continue;
+      }
+    }
+
+    console.log(`[${token}] ❌ فشل جلب السعر من جميع المصادر`);
+    return null;
+
+  } catch (error) {
+    console.error(`[${token}] ❌ خطأ عام في جلب السعر: ${error.message}`);
+    return null;
+  }
+}
+
+// دالة مساعدة لتنسيق الأسعار
+function formatPrice(price) {
+  if (!price || price === 0) return 'غير متاح';
+  
+  if (price < 0.0001) {
+    return price.toExponential(2);
+  } else if (price < 0.01) {
+    return price.toFixed(8);
+  } else if (price < 1) {
+    return price.toFixed(6);
+  } else {
+    return price.toFixed(4);
+  }
+}
+
+// حفظ التوكنات المتتبعة إلى ملف
+function saveTrackedTokens() {
+  try {
+    const tokensToSave = {};
+    Object.keys(trackedTokens).forEach(token => {
+      const t = trackedTokens[token];
+      tokensToSave[token] = {
+        token: t.token,
+        name: t.name,
+        symbol: t.symbol,
+        startTime: t.startTime,
+        firstPrice: t.firstPrice,
+        lastPrice: t.lastPrice,
+        maxIncrease: t.maxIncrease,
+        reached50: t.reached50,
+        stopped: t.stopped,
+        rugcheckStatus: t.rugcheckStatus, // إضافة حفظ حالة rugcheck
+        lowLiquidity: t.lowLiquidity, // إضافة حفظ حالة السيولة
+        solValue: t.solValue, // إضافة حفظ قيمة SOL
+        // إضافة حفظ الخصائص الجديدة
+        previousHighPrice: t.previousHighPrice,
+        currentHighPrice: t.currentHighPrice,
+        lastRiseTime: t.lastRiseTime,
+        rapidRiseAchieved: t.rapidRiseAchieved,
+        priceRiseHistory: t.priceRiseHistory || [], // تأكد من حفظ المصفوفة
+        // خصائص جديدة لتتبع أعلى سعر ونسبة الارتفاع
+        highestPrice: t.highestPrice,
+        maxRisePercentage: t.maxRisePercentage,
+        priceHistoryEvery20s: t.priceHistoryEvery20s || [],
+        lastPriceUpdate20s: t.lastPriceUpdate20s
+        // لا نحفظ page لأنها كائنات غير قابلة للتسلسل
+      };
+    });
+    fs.writeFileSync(trackedTokensFile, JSON.stringify(tokensToSave, null, 2), 'utf8');
+  } catch (error) {
+    console.error('❌ خطأ في حفظ التوكنات المتتبعة:', error.message);
+  }
+}
+
+// تحميل التوكنات المتتبعة من ملف
+function loadTrackedTokens() {
+  try {
+    if (fs.existsSync(trackedTokensFile)) {
+      const savedTokens = JSON.parse(fs.readFileSync(trackedTokensFile, 'utf8'));
+      Object.keys(savedTokens).forEach(token => {
+        const savedToken = savedTokens[token];
+        trackedTokens[token] = {
+          ...savedToken,
+          name: savedToken.name || null, // تحميل اسم التوكن
+          symbol: savedToken.symbol || null, // تحميل رمز التوكن
+          startTime: new Date(savedToken.startTime), // تحويل التاريخ من string إلى Date
+          rugcheckStatus: savedToken.rugcheckStatus || 'UNKNOWN', // تحميل حالة rugcheck أو تعيين UNKNOWN إذا لم تكن موجودة
+          lowLiquidity: savedToken.lowLiquidity !== undefined ? savedToken.lowLiquidity : null, // تحميل حالة السيولة، null = لم يتم فحصها
+          solValue: savedToken.solValue || null, // تحميل قيمة SOL
+          // التأكد من وجود جميع الخصائص الجديدة
+          previousHighPrice: savedToken.previousHighPrice || null,
+          currentHighPrice: savedToken.currentHighPrice || null,
+          lastRiseTime: savedToken.lastRiseTime ? new Date(savedToken.lastRiseTime) : null,
+          rapidRiseAchieved: savedToken.rapidRiseAchieved || false,
+          priceRiseHistory: savedToken.priceRiseHistory || [], // تأكد من وجود المصفوفة
+          // خصائص جديدة لتتبع أعلى سعر ونسبة الارتفاع
+          highestPrice: savedToken.highestPrice || null,
+          maxRisePercentage: savedToken.maxRisePercentage || 0,
+          priceHistoryEvery20s: savedToken.priceHistoryEvery20s || [],
+          lastPriceUpdate20s: savedToken.lastPriceUpdate20s ? new Date(savedToken.lastPriceUpdate20s) : null
+        };
+      });
+      console.log(`📊 Loaded ${Object.keys(savedTokens).length} tokens from saved file`);
+      
+      // إصلاح التوكنات القديمة التي قد تحتوي على قيم سيولة غير صحيحة
+      let needsSave = false;
+      Object.keys(trackedTokens).forEach(token => {
+        if (trackedTokens[token].lowLiquidity === null) {
+          trackedTokens[token].lowLiquidity = false; // افتراض سيولة طبيعية للتوكنات القديمة
+          needsSave = true;
+        }
+      });
+      
+      // حفظ التحديثات إذا تم إصلاح أي توكنات
+      if (needsSave) {
+        saveTrackedTokens();
+        console.log(`🔧 Fixed liquidity values for old tokens`);
+      }
+      
+      // إعادة بدء المراقبة للتوكنات التي لم تتوقف
+      Object.keys(trackedTokens).forEach(token => {
+        const t = trackedTokens[token];
+        
+        // جلب معلومات التوكن إذا لم تكن متوفرة
+        if (!t.name && !t.symbol) {
+          fetchTokenInfo(token).catch(error => {
+            console.error(`[${token}] فشل في جلب معلومات التوكن: ${error.message}`);
+          });
+        }
+        
+        if (!t.stopped) {
+          console.log(`🔄 Restarting token monitoring: ${token}`);
+          startAPITracking(token, t.startTime).catch(err => {
+            console.error(`[${token}] خطأ في إعادة بدء المراقبة: ${err.message}`);
+          });
+        }
+      });
+    }
+  } catch (error) {
+    console.error('❌ خطأ في تحميل التوكنات المتتبعة:', error.message);
+  }
+}
+
+// التحقق من حالة التوكن باستخدام rugcheck_content_extractor.js
+async function checkTokenSafety(token) {
+  console.log(`[${token}] 🔍 فحص التوكن باستخدام rugcheck_content_extractor.js...`);
+  
+  try {
+    // استخدام rugcheck_content_extractor.js
+    const RugcheckContentExtractor = require('./rugcheck_content_extractor');
+    const extractor = new RugcheckContentExtractor();
+    
+    // استخراج المحتوى المنسق
+    const formattedContent = await extractor.extractFormattedContent(token);
+    
+    // البحث عن النقاط في المحتوى المستخرج
+    const scoreMatch = formattedContent.match(/(\d+)\s*\/\s*100/);
+    
+    if (scoreMatch) {
+      const score = parseInt(scoreMatch[1]);
+      console.log(`[${token}] 📊 النقاط المستخرجة: ${score}/100`);
+      
+      // تصنيف التوكن حسب النقاط
+      let status;
+      if (score >= 10 && score <= 20) {
+        status = 'SAFE';
+        console.log(`[${token}] ✅ التوكن آمن - النقاط: ${score}/100`);
+      } else if (score > 20 && score < 35) {
+        status = 'WARNING';
+        console.log(`[${token}] ⚠️ التوكن تحذيري - النقاط: ${score}/100`);
+      } else if (score >= 35) {
+        status = 'DANGER';
+        console.log(`[${token}] 🔴 التوكن خطر - النقاط: ${score}/100`);
+      } else {
+        // أقل من 10 نقاط - نعتبره آمن جداً
+        status = 'SAFE';
+        console.log(`[${token}] ✅ التوكن آمن جداً - النقاط: ${score}/100`);
+      }
+      
+      return status;
+    } else {
+      console.log(`[${token}] ⚠️ لم يتم العثور على تقييم نقاط في المحتوى`);
+      
+      // الرجوع للطريقة القديمة كبديل
+      const apiResult = await checkTokenSafetyAPI(token);
+      if (apiResult !== 'UNKNOWN') {
+        console.log(`[${token}] ✅ نتيجة API البديل: ${apiResult}`);
+        return apiResult;
+      }
+      
+      return 'UNKNOWN';
+    }
+    
+  } catch (error) {
+    console.error(`[${token}] ❌ خطأ في فحص التوكن: ${error.message}`);
+    
+    // الرجوع للطريقة القديمة في حالة الخطأ
+    try {
+      const apiResult = await checkTokenSafetyAPI(token);
+      if (apiResult !== 'UNKNOWN') {
+        console.log(`[${token}] ✅ نتيجة API البديل بعد الخطأ: ${apiResult}`);
+        return apiResult;
+      }
+    } catch (fallbackError) {
+      console.error(`[${token}] ❌ خطأ في API البديل أيضاً: ${fallbackError.message}`);
+    }
+    
+    return 'UNKNOWN';
+  }
+}
+
+// محاولة استخدام API مباشر لـ rugcheck
+async function checkTokenSafetyAPI(token) {
+  try {
+    const options = {
+      hostname: 'api.rugcheck.xyz',
+      port: 443,
+      path: `/v1/tokens/${token}`,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+      }
+    };
+
+    return new Promise((resolve) => {
+      const req = https.request(options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          try {
+            const jsonData = JSON.parse(data);
+            if (jsonData.risk_score !== undefined) {
+              const riskScore = jsonData.risk_score;
+              console.log(`[${token}] نقاط المخاطر من API: ${riskScore}`);
+              if (riskScore <= 30) {
+                resolve('GOOD');
+              } else if (riskScore <= 69) {
+                resolve('WARNING');
+              } else {
+                resolve('DANGER');
+              }
+            } else {
+              resolve('UNKNOWN');
+            }
+          } catch (parseError) {
+            console.log(`[${token}] خطأ في تحليل JSON من API: ${parseError.message}`);
+            resolve('UNKNOWN');
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.log(`[${token}] خطأ في طلب API: ${error.message}`);
+        resolve('UNKNOWN');
+      });
+
+      req.setTimeout(10000, () => {
+        console.log(`[${token}] انتهت مهلة طلب API`);
+        req.abort();
+        resolve('UNKNOWN');
+      });
+
+      req.end();
+    });
+  } catch (error) {
+    console.error(`[${token}] خطأ عام في API: ${error.message}`);
+    return 'UNKNOWN';
+  }
+}
+
+// بديل استخدام جلب HTML البسيط
+async function checkTokenSafetySimple(token) {
+  try {
+    const options = {
+      hostname: 'rugcheck.xyz',
+      port: 443,
+      path: `/tokens/${token}`,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      }
+    };
+
+    return new Promise((resolve) => {
+      const req = https.request(options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          try {
+            const htmlContent = data.toLowerCase();
+            
+            // البحث عن نقاط المخاطر في HTML
+            const riskScoreMatch = htmlContent.match(/(\d+)\s*\/\s*100/) || 
+                                 htmlContent.match(/risk[:\s]*(\d+)/i);
+            
+            if (riskScoreMatch) {
+              const riskScore = parseInt(riskScoreMatch[1]);
+              console.log(`[${token}] تم العثور على نقاط المخاطر: ${riskScore}`);
+              
+              if (riskScore <= 30) {
+                resolve('GOOD');
+              } else if (riskScore <= 69) {
+                resolve('WARNING');
+              } else {
+                resolve('DANGER');
+              }
+            } else {
+              // البحث عن الكلمات المفتاحية
+              if (htmlContent.includes('high risk') || htmlContent.includes('dangerous') || 
+                  htmlContent.includes('scam') || htmlContent.includes('honeypot')) {
+                resolve('DANGER');
+              } else if (htmlContent.includes('medium risk') || htmlContent.includes('warning')) {
+                resolve('WARNING');
+              } else if (htmlContent.includes('low risk') || htmlContent.includes('safe')) {
+                resolve('GOOD');
+              } else {
+                resolve('UNKNOWN');
+              }
+            }
+          } catch (parseError) {
+            console.log(`[${token}] خطأ في تحليل HTML: ${parseError.message}`);
+            resolve('UNKNOWN');
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.log(`[${token}] خطأ في طلب HTML: ${error.message}`);
+        resolve('UNKNOWN');
+      });
+
+      req.setTimeout(15000, () => {
+        console.log(`[${token}] انتهت مهلة طلب HTML`);
+        req.abort();
+        resolve('UNKNOWN');
+      });
+
+      req.end();
+    });
+  } catch (error) {
+    console.error(`[${token}] خطأ عام في جلب HTML: ${error.message}`);
+    return 'UNKNOWN';
+  }
+}
+
+// محاولة استخدام API مباشر لـ rugcheck
+async function checkTokenSafetyAPI(token) {
+  try {
+    const options = {
+      hostname: 'api.rugcheck.xyz',
+      port: 443,
+      path: `/v1/tokens/${token}`,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+      }
+    };
+
+    return new Promise((resolve) => {
+      const req = https.request(options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          try {
+            const jsonData = JSON.parse(data);
+            if (jsonData.risk_score !== undefined) {
+              const riskScore = jsonData.risk_score;
+              console.log(`[${token}] نقاط المخاطر من API: ${riskScore}`);
+              if (riskScore <= 30) {
+                resolve('GOOD');
+              } else if (riskScore <= 69) {
+                resolve('WARNING');
+              } else {
+                resolve('DANGER');
+              }
+            } else {
+              resolve('UNKNOWN');
+            }
+          } catch (parseError) {
+            console.log(`[${token}] خطأ في تحليل JSON من API: ${parseError.message}`);
+            resolve('UNKNOWN');
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.log(`[${token}] خطأ في طلب API: ${error.message}`);
+        resolve('UNKNOWN');
+      });
+
+      req.setTimeout(10000, () => {
+        console.log(`[${token}] انتهت مهلة طلب API`);
+        req.abort();
+        resolve('UNKNOWN');
+      });
+
+      req.end();
+    });
+  } catch (error) {
+    console.error(`[${token}] خطأ عام في API: ${error.message}`);
+    return 'UNKNOWN';
+  }
+}
+
+// بديل استخدام جلب HTML البسيط
+async function checkTokenSafetySimple(token) {
+  try {
+    const options = {
+      hostname: 'rugcheck.xyz',
+      port: 443,
+      path: `/tokens/${token}`,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      }
+    };
+
+    return new Promise((resolve) => {
+      const req = https.request(options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          try {
+            const htmlContent = data.toLowerCase();
+            
+            // البحث عن نقاط المخاطر في HTML
+            const riskScoreMatch = htmlContent.match(/(\d+)\s*\/\s*100/) || 
+                                 htmlContent.match(/risk[:\s]*(\d+)/i);
+            
+            if (riskScoreMatch) {
+              const riskScore = parseInt(riskScoreMatch[1]);
+              console.log(`[${token}] تم العثور على نقاط المخاطر: ${riskScore}`);
+              
+              if (riskScore <= 30) {
+                resolve('GOOD');
+              } else if (riskScore <= 69) {
+                resolve('WARNING');
+              } else {
+                resolve('DANGER');
+              }
+            } else {
+              // البحث عن الكلمات المفتاحية
+              if (htmlContent.includes('high risk') || htmlContent.includes('dangerous') || 
+                  htmlContent.includes('scam') || htmlContent.includes('honeypot')) {
+                resolve('DANGER');
+              } else if (htmlContent.includes('medium risk') || htmlContent.includes('warning')) {
+                resolve('WARNING');
+              } else if (htmlContent.includes('low risk') || htmlContent.includes('safe')) {
+                resolve('GOOD');
+              } else {
+                resolve('UNKNOWN');
+              }
+            }
+          } catch (parseError) {
+            console.log(`[${token}] خطأ في تحليل HTML: ${parseError.message}`);
+            resolve('UNKNOWN');
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.log(`[${token}] خطأ في طلب HTML: ${error.message}`);
+        resolve('UNKNOWN');
+      });
+
+      req.setTimeout(15000, () => {
+        console.log(`[${token}] انتهت مهلة طلب HTML`);
+        req.abort();
+        resolve('UNKNOWN');
+      });
+
+      req.end();
+    });
+  } catch (error) {
+    console.error(`[${token}] خطأ عام في جلب HTML: ${error.message}`);
+    return 'UNKNOWN';
+  }
+}
+
+// الدالة الرئيسية لمراقبة الأسعار باستخدام APIs (DexScreener + CoinGecko)
+async function startAPITracking(token, startTime) {
+  console.log(`[${token}] 🚀 بدء المراقبة باستخدام API...`);
+  
+  // فحص rugcheck أولاً إذا لم يتم فحصه من قبل
+  if (!trackedTokens[token].rugcheckStatus || trackedTokens[token].rugcheckStatus === 'UNKNOWN') {
+    console.log(`[${token}] 🔍 فحص rugcheck قبل بدء مراقبة الأسعار...`);
+    try {
+      const rugcheckResult = await checkRugcheckSimple(token);
+      if (trackedTokens[token]) {
+        trackedTokens[token].rugcheckStatus = rugcheckResult;
+        saveTrackedTokens();
+        
+        // إذا كان التوكن خطير أو تحذيري، أوقف المراقبة فوراً
+        if (rugcheckResult === 'DANGER' || rugcheckResult === 'WARNING') {
+          console.log(`[${token}] 🗑️ التوكن ${rugcheckResult === 'DANGER' ? 'خطير' : 'تحذيري'} - إيقاف المراقبة فوراً`);
+          stopTrackingToken(token);
+          return;
+        }
+      }
+    } catch (rugcheckError) {
+      console.log(`[${token}] خطأ في فحص rugcheck: ${rugcheckError.message}`);
+      // استمر في المراقبة حتى لو فشل فحص rugcheck
+    }
+  }
+  
+  // التحقق من وجود أول سعر محفوظ مسبقاً
+  let firstPrice = (trackedTokens[token] && trackedTokens[token].firstPrice && typeof trackedTokens[token].firstPrice === 'number') 
+                   ? trackedTokens[token].firstPrice 
+                   : null;
+
+  // جلب أول سعر إذا لم يكن محفوظاً مسبقاً
+  if (firstPrice === null) {
+    console.log(`[${token}] جلب أول سعر...`);
+    let attempts = 0;
+    const maxAttempts = 3;
+    
+    while (firstPrice === null && attempts < maxAttempts) {
+      attempts++;
+      firstPrice = await getTokenPriceSimple(token);
+      if (firstPrice === null && attempts < maxAttempts) {
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    }
+    
+    if (firstPrice === null) {
+      console.error(`[${token}] فشل في جلب السعر بعد ${maxAttempts} محاولات. إيقاف المراقبة.`);
+      if (trackedTokens[token]) {
+        trackedTokens[token].firstPrice = "فشل في جلب السعر";
+        trackedTokens[token].lastPrice = "غير متاح";
+        saveTrackedTokens();
+      }
+      return;
+    }
+  }
+
+  // تعيين السعر الأول والأخير
+  if (trackedTokens[token]) {
+    if (!trackedTokens[token].firstPrice || typeof trackedTokens[token].firstPrice !== 'number') {
+      trackedTokens[token].firstPrice = firstPrice;
+    }
+    if (!trackedTokens[token].lastPrice || typeof trackedTokens[token].lastPrice !== 'number') {
+      trackedTokens[token].lastPrice = firstPrice;
+    }
+    saveTrackedTokens();
+  }
+
+  console.log(`[${token}] ✅ بدء المراقبة - 💰 السعر الأول: $${formatPrice(firstPrice)}`);
+
+  // حلقة مراقبة مبسطة
+  (async function updateLoop() {
+    while (trackedTokens[token] && !trackedTokens[token].stopped) {
+      try {
+        // فحص حالة rugcheck - إيقاف التوكنات الخطيرة والتحذيرية فوراً
+        if (trackedTokens[token].rugcheckStatus === 'DANGER' || trackedTokens[token].rugcheckStatus === 'WARNING') {
+          console.log(`[${token}] 🗑️ تم اكتشاف توكن ${trackedTokens[token].rugcheckStatus === 'DANGER' ? 'خطير' : 'تحذيري'} أثناء المراقبة - إيقاف فوري`);
+          break;
+        }
+
+        // فحص السيولة المنخفضة
+        if (trackedTokens[token].lowLiquidity === true) {
+          console.log(`[${token}] 🗑️ تم اكتشاف سيولة منخفضة أثناء المراقبة - إيقاف فوري`);
+          break;
+        }
+        
+        const currentPrice = await getTokenPriceSimple(token);
+        
+        // تحقق من أن التوكن ما زال موجودًا ولم يُحذف أثناء الانتظار
+        if (!trackedTokens[token]) break;
+        
+        if (currentPrice && currentPrice > 0) {
+          // تحديث السعر الحالي
+          trackedTokens[token].lastPrice = currentPrice;
+          
+          // تحديث أعلى سعر وصل إليه التوكن
+          if (!trackedTokens[token].highestPrice || currentPrice > trackedTokens[token].highestPrice) {
+            trackedTokens[token].highestPrice = currentPrice;
+            
+            // حساب أعلى نسبة ارتفاع بين السعر الأول وأعلى سعر
+            const maxRise = ((currentPrice - trackedTokens[token].firstPrice) / trackedTokens[token].firstPrice) * 100;
+            if (maxRise > trackedTokens[token].maxRisePercentage) {
+              trackedTokens[token].maxRisePercentage = maxRise;
+            }
+          }
+          
+          // تحديث تاريخ الأسعار كل 20 ثانية
+          const currentTime = new Date();
+          if (!trackedTokens[token].lastPriceUpdate20s || 
+              (currentTime - trackedTokens[token].lastPriceUpdate20s) >= 20000) {
+            
+            // حساب نسبة التغيير من آخر سعر مسجل
+            let changePercent = 0;
+            if (trackedTokens[token].priceHistoryEvery20s.length > 0) {
+              const lastRecord = trackedTokens[token].priceHistoryEvery20s[trackedTokens[token].priceHistoryEvery20s.length - 1];
+              changePercent = ((currentPrice - lastRecord.price) / lastRecord.price) * 100;
+            }
+            
+            // إضافة السجل الجديد
+            trackedTokens[token].priceHistoryEvery20s.push({
+              price: currentPrice,
+              changePercent: changePercent,
+              timestamp: currentTime
+            });
+            
+            // الاحتفاظ بآخر 50 سجل فقط (حوالي 16 دقيقة)
+            if (trackedTokens[token].priceHistoryEvery20s.length > 50) {
+              trackedTokens[token].priceHistoryEvery20s = trackedTokens[token].priceHistoryEvery20s.slice(-50);
+            }
+            
+            trackedTokens[token].lastPriceUpdate20s = currentTime;
+          }
+          
+          // حساب النسبة المئوية للزيادة من السعر الأول
+          const increase = ((currentPrice - trackedTokens[token].firstPrice) / trackedTokens[token].firstPrice) * 100;
+          if (increase > trackedTokens[token].maxIncrease) trackedTokens[token].maxIncrease = increase;
+          
+          console.log(`[${token}] 💰 السعر الحالي: $${formatPrice(currentPrice)} | ارتفاع: ${increase.toFixed(2)}%`);
+          
+          // إذا لم يصل بعد إلى 50% وحققها الآن، ثبّت reached50 على true
+          if (!trackedTokens[token].reached50 && increase >= 50) {
+            trackedTokens[token].reached50 = true;
+            console.log(`[${token}] 🚀 وصل إلى 50%! الارتفاع: ${increase.toFixed(2)}%`);
+            
+            // التحقق من حالة rugcheck - إرسال أمر الشراء فقط للتوكنات الآمنة
+            if (trackedTokens[token].rugcheckStatus === 'SAFE') {
+              console.log(`[${token}] ✅ شرط الـ 50% محقق + التوكن آمن - إرسال أمر الشراء`);
+              
+              // التحقق من عدم الإرسال المسبق
+              if (!sentTokens.has(token)) {
+                // إرسال أمر الشراء والتوكن
+                try {
+                  const buyMsg = `/buy ${token} ${buyPrice}`;
+                  await globalClient.sendMessage(botUsername, { message: buyMsg });
+                  await globalClient.sendMessage(botUsername, { message: token });
+                  console.log(`[${token}] ✅ تم إرسال أمر الشراء:`, buyMsg);
+                  console.log(`[${token}] 📩 تم إرسال التوكن للمراقبة.`);
+
+                  // إضافة التوكن إلى القائمة المرسلة
+                  sentTokens.add(token);
+                  saveSentTokens();
+                } catch (sendError) {
+                  console.error(`[${token}] خطأ في إرسال أمر الشراء: ${sendError.message}`);
+                }
+              } else {
+                console.log(`[${token}] ⚠️ التوكن تم إرساله مسبقًا، تخطي الإرسال المكرر`);
+              }
+            } else {
+              console.log(`[${token}] ⚠️ وصل إلى 50% لكن التوكن ليس آمنًا (${trackedTokens[token].rugcheckStatus}) - لن يتم إرسال أمر الشراء`);
+            }
+          }
+          
+          // حفظ التحديثات كل دقيقة
+          const now = Date.now();
+          if (!trackedTokens[token].lastSave || now - trackedTokens[token].lastSave > 60000) {
+            trackedTokens[token].lastSave = now;
+            saveTrackedTokens();
+          }
+        } else {
+          console.log(`[${token}] ⚠️ فشل في جلب السعر الحالي`);
+        }
+      } catch (error) {
+        console.error(`[${token}] خطأ في حلقة التحديث: ${error.message}`);
+        // في حالة خطأ الاتصال، انتظر وقت أطول قبل إعادة المحاولة
+        await new Promise(r => setTimeout(r, 30000)); // انتظار 30 ثانية
+        continue;
+      }
+      
+      await new Promise(r => setTimeout(r, 10000)); // فحص كل 10 ثوانٍ
+    }
+    
+    // تنظيف نهائي: حذف التوكن إذا كان خطيراً أو تحذيرياً أو سيولة منخفضة
+    if (trackedTokens[token] && (
+        trackedTokens[token].rugcheckStatus === 'DANGER' || 
+        trackedTokens[token].rugcheckStatus === 'WARNING' ||
+        trackedTokens[token].lowLiquidity === true
+    )) {
+      console.log(`[${token}] 🗑️ تنظيف نهائي: حذف التوكن من المراقبة`);
+      stopTrackingToken(token);
+    }
+  })();
+}
+
+// بدء مراقبة توكن جديد باستخدام نظام API المحسن
+async function startTrackingToken(token, rugcheckStatus = null, solValue = null) {
+  if (trackedTokens[token]) {
+    // إذا كان التوكن موجود، فقط قم بتحديث حالة rugcheck و solValue
+    if (rugcheckStatus !== null) {
+      trackedTokens[token].rugcheckStatus = rugcheckStatus;
+    }
+    if (solValue !== null) {
+      trackedTokens[token].solValue = solValue;
+    }
+    saveTrackedTokens();
+    return;
+  }
+  
+  // التحقق من الحد الأقصى للتوكنات المراقبة
+  const activeTokensCount = Object.keys(trackedTokens).filter(t => !trackedTokens[t].stopped).length;
+  if (activeTokensCount >= MAX_TRACKED_TOKENS) {
+    console.log(`⚠️ تم الوصول للحد الأقصى من التوكنات المراقبة (${MAX_TRACKED_TOKENS}). تخطي التوكن: ${token}`);
+    return;
+  }
+  
+  // إضافة التوكن للمراقبة
+  const startTime = new Date();
+  trackedTokens[token] = {
+    token,
+    name: null, // اسم التوكن
+    symbol: null, // رمز التوكن
+    startTime,
+    firstPrice: null,
+    lastPrice: null,
+    maxIncrease: 0,
+    reached50: false,
+    stopped: false,
+    rugcheckStatus: rugcheckStatus, // حالة التحقق من rugcheck.xyz
+    lowLiquidity: null, // حالة السيولة: true = منخفضة، false = طبيعية، null = غير محققة
+    solValue: solValue, // قيمة SOL المستخرجة من الرسالة
+    // خصائص لمراقبة ارتفاع الأسعار
+    previousHighPrice: null,
+    currentHighPrice: null,
+    lastRiseTime: null,
+    rapidRiseAchieved: false,
+    priceRiseHistory: [], // مصفوفة لحفظ تاريخ ارتفاع الأسعار
+    // خصائص جديدة لتتبع أعلى سعر ونسبة الارتفاع
+    highestPrice: null, // أعلى سعر وصل إليه التوكن
+    maxRisePercentage: 0, // أعلى نسبة ارتفاع بين السعر الأول وأعلى سعر
+    priceHistoryEvery20s: [], // تاريخ الأسعار كل 20 ثانية مع نسبة التغيير
+    lastPriceUpdate20s: null // آخر تحديث للسعر كل 20 ثانية
+  };
+
+  // حفظ التوكن الجديد
+  saveTrackedTokens();
+  
+  console.log(`[${token}] تم إضافة التوكن للمراقبة وحفظه في الملف`);
+
+  // جلب اسم التوكن ورمزه في الخلفية
+  fetchTokenInfo(token).catch(error => {
+    console.error(`[${token}] فشل في جلب معلومات التوكن: ${error.message}`);
+  });
+
+  // بدء مراقبة الأسعار باستخدام API
+  try {
+    await startAPITracking(token, startTime);
+  } catch (error) {
+    console.error(`[${token}] فشل في بدء مراقبة الأسعار: ${error.message}`);
+  }
+}
+
+// حذف التوكن من المراقبة
+function stopTrackingToken(token) {
+  if (trackedTokens[token]) {
+    trackedTokens[token].stopped = true;
+    delete trackedTokens[token];
+    // حفظ التغييرات
+    saveTrackedTokens();
+    console.log(`🗑️ تم حذف التوكن ${token} من المراقبة`);
+  }
+}
+
+// بيانات الدخول تلقائية للسيرفر
+const PHONE_NUMBER = "+966XXXXXXXXX";  // ضع رقمك هنا
+const PASSWORD = "YOUR_PASSWORD"; // إذا كان لديك كلمة مرور 2FA
+const PHONE_CODE = undefined; // يمكن تركه undefined ليتم تجاهله
+
+const apiId = 23299626;
+const apiHash = "89de50a19288ec535e8b008ae2ff268d";
+
+console.log("🚀 Bot is now running 24/7 on the server!");
+
+// تحميل التوكنات والبدء
+loadTrackedTokens();
+// تحميل التوكنات المرسلة
+loadSentTokens();
+// بدء التنظيف التلقائي للتوكنات الخطيرة
+startAutomaticDangerousTokenCleanup();
+// بدء فحص السيولة الدوري
+startLiquidityCheck();
+
+// دالة لتسجيل الدخول والخروج
+function logLoginLogout(type) {
+  const logFile = 'login_logout_log.txt';
+  const now = new Date().toISOString();
+  fs.appendFileSync(logFile, `${type},${now}\n`, 'utf8');
+}
+
+// تسجيل الدخول
+logLoginLogout('login');
+
+// نحاول تحميل الجلسة من ملف
+let stringSession = new StringSession("");
+
+if (fs.existsSync("session.txt")) {
+  const savedSession = fs.readFileSync("session.txt", "utf8");
+  stringSession = new StringSession(savedSession.trim());
+}
+
+(async () => {
+  console.log("📲 Starting Telegram connection...");
+  const client = new TelegramClient(stringSession, apiId, apiHash, {
+    connectionRetries: 5,
+  });
+  
+  // تعيين العميل العام للاستخدام في الوظائف الأخرى
+  globalClient = client;
+
+  // تسجيل الدخول عند الحاجة فقط
+  try {
+    await client.start({
+      phoneNumber: async () => PHONE_NUMBER,
+      password: async () => PASSWORD,
+      phoneCode: async () => PHONE_CODE,
+      onError: (err) => console.log("❌ خطأ:", err),
+    });
+  } catch (err) {
+    if (err.errorMessage === 'AUTH_KEY_DUPLICATED') {
+      console.error('❌ AUTH_KEY_DUPLICATED: سيتم حذف الجلسة القديمة وإنشاء جلسة جديدة.');
+      fs.unlinkSync('session.txt'); // حذف ملف الجلسة القديمة
+      stringSession = new StringSession(""); // إعادة تعيين الجلسة
+      await client.start({
+        phoneNumber: async () => PHONE_NUMBER,
+        password: async () => PASSWORD,
+        phoneCode: async () => PHONE_CODE,
+        onError: (err) => console.log("❌ خطأ:", err),
+      });
+    } else {
+      throw err; // إعادة رمي الخطأ إذا لم يكن AUTH_KEY_DUPLICATED
+    }
+  }
+
+  console.log("✅ Logged in!");
+  const sessionString = client.session.save();
+
+  // حفظ الجلسة للاستخدام التالي
+  fs.writeFileSync("session.txt", sessionString);
+  console.log("💾 Session saved to session.txt");
+
+  await client.sendMessage("me", { message: "🚀 بوت الإشعارات شغال!" });
+
+  // تحقق من الانضمام للبوتات المطلوبة مرة واحدة فقط في الحياة
+  const joinedBotsFile = 'joined_bots.txt';
+  if (!fs.existsSync(joinedBotsFile)) {
+    try {
+      // قائمة البوتات المطلوبة
+      const botsToJoin = ['GMGN_sol_bot', 'solBigamout'];
+      for (const bot of botsToJoin) {
+        // أرسل فقط للبوتات التي تنتهي بـ _bot
+        if (bot.endsWith('_bot')) {
+          await client.sendMessage(bot, { message: '/start' });
+          await sleep(2000);
+        } else {
+          console.log(`⚠️ تخطي ${bot}: ليس بوت تليجرام.`);
+        }
+      }
+      fs.writeFileSync(joinedBotsFile, 'done');
+      console.log('✅ تم الانضمام لكل البوتات المطلوبة لأول مرة.');
+    } catch (err) {
+      console.error('❌ خطأ أثناء الانضمام للبوتات:', err.message);
+    }
+  }
+
+  // التتبع والتوجيه
+  client.addEventHandler(async (update) => {
+    try {
+      // تعديل شروط الفلترة لإضافة الفرز الرابع
+      if (update.message && typeof update.message.message === "string") {
+
+        const msg = update.message;
+        const text = msg.message;
+
+        // ميزة منفصلة: عند استقبال FARESS أرسل صفحة تتبع التوكن كملف HTML إلى GMGN
+        if (text.trim() === "FARESS") {
+          const { fetchAndSaveTrackTokenPage } = require("./sendTrackTokenPage");
+          const htmlFile = await fetchAndSaveTrackTokenPage();
+          if (htmlFile) {
+            try {
+              await client.sendFile('GMGN_sol_bot', {
+                file: htmlFile,
+                caption: '📊 صفحة تتبع التوكن الحالية (طلب FARESS)'
+              });
+              console.log('✅ تم إرسال صفحة تتبع التوكن كملف HTML إلى GMGN_sol_bot');
+            } catch (err) {
+              console.error('❌ فشل في إرسال الملف إلى GMGN_sol_bot:', err.message);
+            }
+          } else {
+            console.error('❌ تعذر جلب أو حفظ صفحة تتبع التوكن');
+          }
+          return;
+        }
+
+        // فلترة الرسائل التي تحتوي على "counts: 1" أو أكثر و"25 SOL" أو أكثر
+    // تعديل شرط الفرز ليكون من "SOL 10.00" وأعلى
+    if (/\bcounts:\s*(\d+)\b/i.test(text) && parseInt(text.match(/\bcounts:\s*(\d+)\b/i)[1]) >= 1 &&
+      /(1[0-9]|[2-9]\d|\d{3,})\.\d{2}\s*SOL(\D|$)/.test(text)) {
+
+          // استخراج قيمة SOL من النص
+          const solMatch = text.match(/([\d,]+\.\d{2})\s*SOL/);
+          let solValue = null;
+          if (solMatch && solMatch[1]) {
+            solValue = parseFloat(solMatch[1].replace(/,/g, ''));
+            console.log(`💰 Extracted SOL value: ${solValue}`);
+          }
+
+          // فلترة "5m" بحيث تكون بين 0% و 100000%
+          const fiveMinMatch = text.match(/5m\s*\((\d+\.\d+)%\)/);
+          if (fiveMinMatch) {
+            const fiveMinPercentage = parseFloat(fiveMinMatch[1]);
+            if (fiveMinPercentage < 0 || fiveMinPercentage > 100000) {
+              console.log(`⚠️ 5m ratio (${fiveMinPercentage}%) outside required range (0%-100000%). Skipping.`);
+              return;
+            }
+          }
+
+          // الشرط الرابع: التحقق من أن عدد الأيام (d) يساوي 0
+          const ageMatch = text.match(/age:\s*(\d+)d\s*(\d+)h/);
+          if (ageMatch) {
+            const days = parseInt(ageMatch[1]);
+            if (days !== 0) {
+              console.log(`⚠️ عدد الأيام (d) ليس 0. تخطي.`);
+              return;
+            }
+          }
+
+          // فلترة السعر price: $... يجب أن يكون أقل من 0.01
+          const priceMatch = text.match(/price:\s*\$?([\deE\.-]+)/i);
+          if (priceMatch && priceMatch[1]) {
+            let priceValue = parseFloat(priceMatch[1]);
+            if (isNaN(priceValue)) {
+              // محاولة التحويل من صيغة علمية
+              try {
+                priceValue = Number(priceMatch[1]);
+              } catch {}
+            }
+            if (!(priceValue < 0.01)) {
+              console.log(`⚠️ Price ${priceValue} is greater than or equal to 0.01. Skipping.`);
+              return;
+            }
+          } else {
+            // إذا لم يوجد سعر، تخطى
+            console.log('⚠️ لم يتم العثور على السعر في الرسالة. تخطي.');
+            return;
+          }
+
+          const startTime = performance.now();
+          // استخراج التوكن بعد ca:
+          const caMatch = text.match(/ca:\s*([\w]+)/);
+          if (caMatch && caMatch[1]) {
+            const token = caMatch[1];
+            if (sentTokens.has(token)) {
+              console.log(`⚠️ التوكن ${token} تم إرساله مسبقًا. تخطي.`);
+              return;
+            }
+            
+            // طباعة التوكن مع قيمة SOL
+            console.log(`${token} (${solValue ? solValue.toFixed(2) + ' SOL' : 'SOL غير محدد'})`);
+            
+            // التحقق من حالة التوكن على rugcheck.xyz قبل الإرسال
+            console.log(`[${token}] 🔍 بدء التحقق من حالة التوكن على rugcheck.xyz...`);
+            const tokenSafety = await checkTokenSafety(token);
+            
+            // حفظ حالة rugcheck في بيانات التوكن للعرض لاحقاً
+            if (trackedTokens[token]) {
+              trackedTokens[token].rugcheckStatus = tokenSafety;
+            }
+            
+            // فحص نتيجة rugcheck
+            if (tokenSafety === 'DANGER') {
+              console.log(`[${token}] ❌ تم رفض التوكن - مصنف كـ DANGER على rugcheck.xyz`);
+              console.log(`[${token}] 🚫 لن يتم إرسال أمر الشراء أو إرسال التوكن إلى GMGN`);
+              console.log(`[${token}] 🗑️ حذف التوكن الخطير فوراً من المراقبة`);
+              
+              // حذف التوكن الخطير فوراً بدلاً من مراقبته
+              if (trackedTokens[token]) {
+                stopTrackingToken(token);
+              }
+              
+              return; // عدم إرسال التوكن إذا كان خطر
+            } else if (tokenSafety === 'WARNING') {
+              console.log(`[${token}] ⚠️ تحذير: التوكن مصنف كـ WARNING على rugcheck.xyz`);
+              console.log(`[${token}] 🤔 لن يتم إرسال أمر الشراء كإجراء احترازي`);
+              console.log(`[${token}] 🗑️ حذف التوكن التحذيري فوراً من المراقبة`);
+              
+              // حذف التوكن التحذيري فوراً بدلاً من مراقبته
+              if (trackedTokens[token]) {
+                stopTrackingToken(token);
+              } else {
+                // إذا لم يكن موجوداً في المراقبة، لا نضيفه أصلاً
+                console.log(`[${token}] التوكن ليس في المراقبة، لن يتم إضافته`);
+              }
+              
+              // بدء مراقبة التوكن حتى لو تم رفضه (لأغراض الإحصائيات)
+              startTrackingToken(token, tokenSafety, solValue).catch(err => {
+                console.error(`[${token}] خطأ في بدء المراقبة: ${err.message}`);
+              });
+              
+              return; // عدم إرسال التوكن إذا كان تحذير
+            } else if (tokenSafety === 'SAFE') {
+              console.log(`[${token}] ✅ التوكن آمن على rugcheck.xyz`);
+            } else {
+              // إذا كان UNKNOWN أو أي حالة أخرى
+              console.log(`[${token}] ⚠️ لم يتم تحديد حالة التوكن بوضوح على rugcheck.xyz (الحالة: ${tokenSafety})`);
+              console.log(`[${token}] 🛑 لن يتم إرسال أمر الشراء لأن الحالة غير واضحة - إجراء احترازي`);
+              
+              // بدء مراقبة التوكن حتى لو تم رفضه (لأغراض الإحصائيات)
+              startTrackingToken(token, tokenSafety, solValue).catch(err => {
+                console.error(`[${token}] خطأ في بدء المراقبة: ${err.message}`);
+              });
+              
+              return; // عدم إرسال التوكن إذا كانت الحالة غير واضحة
+            }
+            
+            console.log(`[${token}] ⏳ انتظار تحقق شرط الـ 50% قبل إرسال أمر الشراء والتوكن إلى GMGN`);
+            
+            // حفظ التوكن في ملف لاستخدامه في بوت sniperoo
+            fs.writeFileSync('last_token.txt', token, 'utf8');
+
+            // بدء مراقبة التوكن أولاً بدلاً من الإرسال الفوري
+            // سيتم إرسال أمر الشراء والتوكن فقط عند تحقق الـ 50% إذا كان التوكن آمن (SAFE)
+            if (tokenSafety === 'SAFE') {
+              console.log(`[${token}] 🔄 بدء مراقبة التوكن الآمن لانتظار تحقق الـ 50%...`);
+              
+              // بدء مراقبة التوكن (مع معالجة الأخطاء)
+              startTrackingToken(token, tokenSafety, solValue).catch(err => {
+                console.error(`[${token}] خطأ في بدء المراقبة: ${err.message}`);
+              });
+            } else {
+              console.log(`[${token}] 🛑 تم تخطي إرسال أمر الشراء والتوكن بسبب أن حالة rugcheck ليست آمنة (الحالة: ${tokenSafety})`);
+              // بدء مراقبة التوكن حتى لو لم يكن آمنًا (لأغراض الإحصائيات) مع تمرير الحالة
+              startTrackingToken(token, tokenSafety, solValue).catch(err => {
+                console.error(`[${token}] خطأ في بدء المراقبة: ${err.message}`);
+              });
+            }
+
+            const endTime = performance.now();
+            const executionTimeLog = `⏱️ وقت التنفيذ للتوكن ${token}: ${(endTime - startTime).toFixed(2)} مللي ثانية.`;
+            console.log(executionTimeLog);
+            executionLogsBuffer.push(`${executionTimeLog}\n`);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("❌ خطأ أثناء التوجيه:", err.message);
+    }
+  });
+})();
+
+const botUsername = 'GMGN_sol_bot';
+
+// دالة التداول التلقائي في بوت GMGN
+async function tradeInGMGNBot(client, token) {
+  const lastStartFile = 'gmgn_last_start.txt';
+  let shouldSendStart = true;
+  try {
+    // تحقق من آخر إرسال لـ /start
+    if (fs.existsSync(lastStartFile)) {
+      const lastStartDate = fs.readFileSync(lastStartFile, 'utf8').trim();
+      const today = new Date().toISOString().slice(0, 10);
+      if (lastStartDate === today) {
+        shouldSendStart = false;
+      }
+    }
+    // إرسال /start مرة واحدة فقط يومياً
+    if (shouldSendStart) {
+      await client.sendMessage(botUsername, { message: '/start' });
+      fs.writeFileSync(lastStartFile, new Date().toISOString().slice(0, 10));
+      await sleep(2000);
+    }
+    // إرسال التوكن
+    await client.sendMessage(botUsername, { message: token });
+    await sleep(3000);
+
+    // استقبال رسائل البوت وطباعة كل رسالة والبحث عن السعر
+    let price = null;
+    let done = false;
+    let lastBotMessage = null;
+    const handler = async (update) => {
+      // تحقق من أن الرسالة من بوت GMGN بناءً على اسم المستخدم أو peerId
+      if (update.message && update.message.peerId && (
+            (update.message.peerId.userId && update.message.peerId.userId.toString().includes('GMGN')) ||
+            (update.message.peerId.channelId && botUsername.includes('GMGN'))
+          )) {
+        const text = update.message.message;
+        lastBotMessage = text;
+        // تحقق أن الرسالة تحتوي على التوكن المطلوب
+        if (text.includes(token)) {
+          // استخراج السعر من الرسالة
+          let priceMatch = text.match(/price:\s*\$?([\d\.]+)/i);
+          if (priceMatch && priceMatch[1]) {
+            price = parseFloat(priceMatch[1]);
+            done = true;
+            // طباعة السعر فقط بدون باقي الرسالة وبدون علامة الدولار
+            console.log('📩 السعر من GMGN: ' + priceMatch[1]);
+            // حساب السعر الجديد بزيادة 1000%
+            const newPrice = (price * 10).toFixed(6);
+            // إرسال أمر التداول مباشرة
+            const orderMsg = `/create limitbuy ${token} 0.5@${newPrice} -exp 86400`;
+            await client.sendMessage(botUsername, { message: orderMsg });
+            console.log('✅ تم إرسال أمر التداول:', orderMsg);
+          } else {
+            // إذا لم يوجد سعر، اطبع الرسالة كاملة
+            console.log('📩 رسالة من GMGN:\n' + text);
+          }
+        }
+      }
+    };
+    client.addEventHandler(handler);
+    // انتظر حتى يتم استقبال السعر أو انتهاء المهلة
+    let tries = 0;
+    while (!done && tries < 10) {
+      await sleep(1000);
+      tries++;
+    }
+    client.removeEventHandler(handler);
+    if (!price) {
+      console.log('📩 رد البوت بعد ارسال التوكن:\n' + (lastBotMessage || 'لم يتم استقبال أي رسالة من البوت بعد إرسال التوكن'));
+      return;
+    }
+    // حساب السعر الجديد بزيادة 1000%
+    const newPrice = (price * 10).toFixed(6);
+    // إرسال أمر التداول
+    const orderMsg = `/create limitbuy ${token} 0.5@${newPrice} -exp 86400`;
+    await client.sendMessage(botUsername, { message: orderMsg });
+    console.log('✅ تم إرسال أمر التداول:', orderMsg);
+  } catch (err) {
+    console.error('❌ خطأ في التداول مع GMGN:', err.message);
+  }
+}
+
+// دالة تأخير بسيطة
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// الحذف التلقائي للتوكنات الخطيرة والتحذيرية كل ساعة
+function startAutoDeletion() {
+  console.log('🤖 Automatic deletion of dangerous and warning tokens enabled every hour');
+  
+  // تشغيل الحذف التلقائي كل ساعة (3600000 مللي ثانية)
+  setInterval(async () => {
+    console.log('⏰ بدء عملية الحذف التلقائي للتوكنات الخطيرة والتحذيرية...');
+    const result = await deleteDangerousTokens();
+    
+    if (result.deleted > 0) {
+      console.log(`🧹 تم حذف ${result.deleted} توكن تلقائياً (عملية تنظيف دورية)`);
+    } else {
+      console.log('✨ لا توجد توكنات خطيرة للحذف في هذه الدورة');
+    }
+  }, 3600000); // كل ساعة
+  
+  // تشغيل أول دورة حذف بعد ساعة واحدة من بدء السيرفر
+  setTimeout(async () => {
+    console.log('🚀 بدء أول عملية حذف تلقائي بعد ساعة واحدة من التشغيل...');
+    const result = await deleteDangerousTokens();
+    
+    if (result.deleted > 0) {
+      console.log(`🧹 تم حذف ${result.deleted} توكن في أول عملية تنظيف`);
+    }
+  }, 3600000); // بعد ساعة واحدة
+}
+
+// إعادة فحص التكوينات القديمة التي لم يتم التحقق منها
+async function recheckOldTokens() {
+  console.log('🔍 Starting re-checking of old configurations...');
+  
+  const tokenEntries = Object.entries(trackedTokens);
+  const uncheckedTokens = tokenEntries.filter(([token, data]) => 
+    !data.rugcheckStatus || data.rugcheckStatus === null || data.rugcheckStatus === 'غير محدد' || data.rugcheckStatus === 'UNKNOWN'
+  );
+  
+  if (uncheckedTokens.length === 0) {
+    console.log('✅ All configurations are up to date and do not need re-checking');
+    return;
+  }
+  
+  console.log(`📋 تم العثور على ${uncheckedTokens.length} توكن يحتاج إعادة فحص`);
+  
+  for (const [token, data] of uncheckedTokens) {
+    console.log(`🔄 إعادة فحص التوكن: ${token}`);
+    
+    try {
+      const newStatus = await checkTokenSafety(token);
+      trackedTokens[token].rugcheckStatus = newStatus;
+      
+      console.log(`✅ تم تحديث حالة ${token} إلى: ${newStatus}`);
+      
+      // حذف التوكنات الخطيرة والتحذيرية فوراً
+      if (newStatus === 'DANGER' || newStatus === 'WARNING') {
+        console.log(`[${token}] 🗑️ حذف التوكن ${newStatus === 'DANGER' ? 'الخطير' : 'التحذيري'} فوراً من المراقبة`);
+        stopTrackingToken(token);
+        continue; // الانتقال للتوكن التالي
+      }
+      
+      // انتظار قصير بين كل فحص لتجنب الحمل الزائد
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+    } catch (error) {
+      console.error(`❌ خطأ في إعادة فحص ${token}: ${error.message}`);
+    }
+  }
+  
+  // حفظ التحديثات
+  saveTrackedTokens();
+  console.log('💾 تم حفظ جميع التحديثات');
+}
+
+// إعادة تشغيل جميع التوكنات المتوقفة
+async function restartAllTokens() {
+  console.log('🔄 بدء إعادة تشغيل جميع التوكنات المتوقفة...');
+  
+  const tokenEntries = Object.entries(trackedTokens);
+  const stoppedTokens = tokenEntries.filter(([token, data]) => data.stopped === true);
+  
+  if (stoppedTokens.length === 0) {
+    console.log('✅ لا توجد توكنات متوقفة لإعادة تشغيلها');
+    return;
+  }
+  
+  console.log(`🔄 تم العثور على ${stoppedTokens.length} توكن متوقف لإعادة تشغيله`);
+  
+  for (const [token, data] of stoppedTokens) {
+    console.log(`🚀 إعادة تشغيل التوكن: ${token}`);
+    
+    try {
+      // إعادة تعيين حالة التوكن
+      trackedTokens[token].stopped = false;
+      trackedTokens[token].lowLiquidity = false; // افتراض سيولة طبيعية عند إعادة التشغيل
+      trackedTokens[token].lastPrice = null; // إعادة تعيين آخر سعر
+      
+      // بدء المراقبة مرة أخرى
+      await startAPITracking(token, data.startTime).catch(err => {
+        console.error(`[${token}] خطأ في إعادة بدء المراقبة: ${err.message}`);
+        startManualTracking(token);
+      });
+      
+      console.log(`✅ تم إعادة تشغيل المراقبة للتوكن: ${token}`);
+      
+      // انتظار قصير بين كل إعادة تشغيل لتجنب الحمل الزائد
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+    } catch (error) {
+      console.error(`❌ خطأ في إعادة تشغيل ${token}: ${error.message}`);
+    }
+  }
+  
+  // حفظ التحديثات
+  saveTrackedTokens();
+  console.log('💾 تم حفظ جميع التحديثات وإعادة تشغيل المراقبة');
+}
+
+// حذف التوكنات الخطيرة والتحذيرية
+async function deleteDangerousTokens() {
+  console.log('🔍 فحص التوكنات الخطيرة والتحذيرية...');
+  
+  const tokenEntries = Object.entries(trackedTokens);
+  const dangerousTokens = tokenEntries.filter(([token, data]) => 
+    data.rugcheckStatus === 'DANGER' || data.rugcheckStatus === 'WARNING'
+  );
+  
+  if (dangerousTokens.length === 0) {
+    console.log('✅ لا توجد توكنات خطيرة أو تحذيرية');
+    return { deleted: 0, total: tokenEntries.length };
+  }
+  
+  console.log(`🗑️ العثور على ${dangerousTokens.length} توكن خطير/تحذيري - بدء الحذف...`);
+  
+  let deletedCount = 0;
+  for (const [token, data] of dangerousTokens) {
+    try {
+      console.log(`🗑️ حذف التوكن ${data.rugcheckStatus}: ${token}`);
+      delete trackedTokens[token];
+      deletedCount++;
+    } catch (error) {
+      console.error(`❌ خطأ في حذف التوكن ${token}: ${error.message}`);
+    }
+  }
+  
+  // حفظ التغييرات
+  if (deletedCount > 0) {
+    saveTrackedTokens();
+    console.log(`✅ تم حذف ${deletedCount} توكن خطير/تحذيري`);
+  }
+  
+  return { deleted: deletedCount, total: tokenEntries.length };
+}
+
+// التنظيف التلقائي للتوكنات الخطيرة والتحذيرية
+function startAutomaticDangerousTokenCleanup() {
+  console.log('🔄 بدء التنظيف التلقائي للتوكنات الخطيرة والتحذيرية...');
+  setInterval(async () => {
+    try {
+      const result = await deleteDangerousTokens();
+      if (result.deleted > 0) {
+        console.log(`🧹 تم حذف ${result.deleted} توكن خطير/تحذيري`);
+      }
+    } catch (error) {
+      console.error('❌ خطأ في التنظيف التلقائي:', error.message);
+    }
+  }, 60000); // كل دقيقة
+  
+  console.log('✅ تم تفعيل التنظيف التلقائي (كل دقيقة)');
+}
+
+// فحص السيولة الدوري لجميع التوكنات
+function startLiquidityCheck() {
+  console.log('💧 بدء فحص السيولة الدوري لجميع التوكنات...');
+  setInterval(async () => {
+    try {
+      await checkAllTokensLiquidity();
+    } catch (error) {
+      console.error('❌ خطأ في فحص السيولة الدوري:', error.message);
+    }
+  }, 120000); // كل دقيقتين (120 ثانية)
+  
+  console.log('✅ تم تفعيل فحص السيولة الدوري (كل دقيقتين)');
+}
+
+// فحص سيولة جميع التوكنات النشطة
+async function checkAllTokensLiquidity() {
+  const activeTokens = Object.keys(trackedTokens).filter(token => 
+    !trackedTokens[token].stopped && 
+    (trackedTokens[token].lowLiquidity === null || !trackedTokens[token].rugcheckStatus || trackedTokens[token].rugcheckStatus === 'UNKNOWN')
+  );
+  
+  if (activeTokens.length === 0) {
+    console.log('💧 لا توجد توكنات تحتاج فحص السيولة أو rugcheck');
+    return;
+  }
+  
+  console.log(`💧 بدء فحص السيولة و rugcheck لـ ${activeTokens.length} توكن...`);
+  
+  // فحص كل توكن بشكل منفصل مع تأخير بين كل واحد
+  for (let i = 0; i < activeTokens.length; i++) {
+    const token = activeTokens[i];
+    
+    try {
+      console.log(`💧 فحص التوكن ${i + 1}/${activeTokens.length}: ${token}`);
+      
+      // فحص rugcheck أولاً إذا لم يتم فحصه
+      if (!trackedTokens[token].rugcheckStatus || trackedTokens[token].rugcheckStatus === 'UNKNOWN') {
+        console.log(`[${token}] 🔍 فحص rugcheck...`);
+        const rugcheckResult = await checkRugcheckSimple(token);
+        if (trackedTokens[token]) {
+          trackedTokens[token].rugcheckStatus = rugcheckResult;
+          saveTrackedTokens();
+          
+          // إذا كان خطير أو تحذيري، احذفه فوراً
+          if (rugcheckResult === 'DANGER' || rugcheckResult === 'WARNING') {
+            console.log(`[${token}] 🗑️ rugcheck ${rugcheckResult} - حذف فوري`);
+            stopTrackingToken(token);
+            continue; // انتقل للتوكن التالي
+          }
+        }
+      }
+      
+      // فحص السيولة إذا لم تُفحص من قبل
+      if (trackedTokens[token] && trackedTokens[token].lowLiquidity === null) {
+        await checkSingleTokenLiquidity(token);
+      }
+      
+      // تأخير بين كل توكن لتجنب الإجهاد
+      if (i < activeTokens.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 5000)); // 5 ثوان
+      }
+    } catch (error) {
+      console.error(`💧 خطأ في فحص التوكن ${token}: ${error.message}`);
+    }
+  }
+  
+  console.log(`💧 انتهى فحص السيولة و rugcheck لجميع التوكنات`);
+}
+
+// فحص rugcheck بطريقة مبسطة
+// فحص rugcheck باستخدام rugcheck_content_extractor.js
+async function checkRugcheckSimple(token) {
+  try {
+    console.log(`[${token}] 🔍 فحص rugcheck باستخدام content extractor...`);
+    
+    // استخدام rugcheck_content_extractor.js
+    const RugcheckContentExtractor = require('./rugcheck_content_extractor');
+    const extractor = new RugcheckContentExtractor();
+    
+    // استخراج المحتوى المنسق
+    const formattedContent = await extractor.extractFormattedContent(token);
+    
+    // البحث عن النقاط في المحتوى المستخرج
+    const scoreMatch = formattedContent.match(/(\d+)\s*\/\s*100/);
+    
+    if (scoreMatch) {
+      const score = parseInt(scoreMatch[1]);
+      console.log(`[${token}] 📊 النقاط المستخرجة: ${score}/100`);
+      
+      // تصنيف التوكن حسب النقاط
+      let status;
+      if (score >= 10 && score <= 20) {
+        status = 'SAFE';
+        console.log(`[${token}] ✅ التوكن آمن - النقاط: ${score}/100`);
+      } else if (score > 20 && score < 35) {
+        status = 'WARNING';
+        console.log(`[${token}] ⚠️ التوكن تحذيري - النقاط: ${score}/100`);
+      } else if (score >= 35) {
+        status = 'DANGER';
+        console.log(`[${token}] 🔴 التوكن خطر - النقاط: ${score}/100`);
+      } else {
+        // أقل من 10 نقاط - نعتبره آمن جداً
+        status = 'SAFE';
+        console.log(`[${token}] ✅ التوكن آمن جداً - النقاط: ${score}/100`);
+      }
+      
+      return status;
+    } else {
+      console.log(`[${token}] ⚠️ لم يتم العثور على تقييم نقاط في المحتوى`);
+      return 'UNKNOWN';
+    }
+    
+  } catch (error) {
+    console.error(`[${token}] ❌ خطأ في فحص rugcheck: ${error.message}`);
+    return 'UNKNOWN';
+  }
+}
+
+// فحص سيولة توكن واحد (مبسط)
+async function checkSingleTokenLiquidity(token) {
+  if (!trackedTokens[token] || trackedTokens[token].stopped) {
+    return;
+  }
+  
+  try {
+    console.log(`[${token}] 💧 فحص السيولة من API...`);
+    
+    // استخدام API لفحص السيولة (يمكن تطويره لاحقاً)
+    // حالياً، سنعتبر جميع التوكنات لديها سيولة طبيعية ما لم نحصل على معلومات أخرى
+    
+    if (trackedTokens[token]) {
+      // احتفظ بالحالة الحالية أو اعتبر السيولة طبيعية إذا لم تكن محددة
+      if (trackedTokens[token].lowLiquidity === undefined) {
+        trackedTokens[token].lowLiquidity = false;
+        console.log(`[${token}] 💧 السيولة: ✅ افتراض طبيعية (لم يتم فحصها)`);
+        saveTrackedTokens();
+      }
+    }
+    
+  } catch (error) {
+    console.log(`[${token}] خطأ في فحص السيولة: ${error.message}`);
+  }
+}
+
+let buyPrice = 0.5; // السعر الافتراضي
+
+const PORT = process.env.PORT || 1010;
+const server = http.createServer(async (req, res) => {
+  // Health check endpoint للتوافق مع Render
+  if (req.method === "GET" && req.url === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "OK", timestamp: new Date().toISOString() }));
+    return;
+  }
+
+  // Root endpoint للتحقق من حالة البوت
+  if (req.method === "GET" && req.url === "/") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(`
+      <div style='text-align:center; font-family: Arial, sans-serif; padding: 50px;'>
+        <h1 style='color: #0078D7;'>🚀 البوت يعمل بنجاح!</h1>
+        <p style='font-size: 1.2em; color: #333;'>الوقت الحالي: ${new Date().toLocaleString('ar-SA')}</p>
+        <p><a href="/track_token" style='color: #0078D7; text-decoration: none;'>📊 متابعة التوكنات</a></p>
+      </div>
+    `);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/delete-all") {
+    // مسح محتويات ملف السجلات
+    fs.writeFileSync('execution_logs.txt', '', 'utf8');
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(`
+      <div style='text-align:center;'>
+        <div style='font-size:2em;'>🚀 تم مسح جميع السجلات بنجاح!</div>
+        <a href="/" style='font-size:1.5em; color:#0078D7;'>العودة إلى الصفحة الرئيسية</a>
+      </div>
+    `);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/delete-token") {
+    let body = "";
+    req.on("data", chunk => {
+      body += chunk.toString();
+    });
+    req.on("end", () => {
+      try {
+        const data = JSON.parse(body);
+        const token = data.token;
+        
+        if (!token) {
+          res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+          res.end(JSON.stringify({ success: false, error: "لم يتم تحديد التوكن" }));
+          return;
+        }
+
+        if (trackedTokens[token]) {
+          // حذف التوكن من المراقبة
+          delete trackedTokens[token];
+          saveTrackedTokens();
+          console.log(`🗑️ تم حذف التوكن ${token} من المراقبة يدوياً`);
+          
+          res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+          res.end(JSON.stringify({ success: true, message: "تم حذف التوكن بنجاح" }));
+        } else {
+          res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
+          res.end(JSON.stringify({ success: false, error: "التوكن غير موجود" }));
+        }
+      } catch (error) {
+        console.error('❌ خطأ في حذف التوكن:', error.message);
+        res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ success: false, error: "حدث خطأ في الخادم" }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/update-price") {
+    let body = "";
+    req.on("data", chunk => {
+      body += chunk.toString();
+    });
+    req.on("end", () => {
+      const params = new URLSearchParams(body);
+      const newPrice = parseFloat(params.get("price"));
+      if (!isNaN(newPrice) && newPrice > 0) {
+        buyPrice = newPrice;
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(`
+          <div style='text-align:center;'>
+            <div style='font-size:2em;'>✅ تم تحديث السعر بنجاح إلى: ${buyPrice}</div>
+            <a href="/" style='font-size:1.5em; color:#0078D7;'>العودة إلى الصفحة الرئيسية</a>
+          </div>
+        `);
+      } else {
+        res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(`
+          <div style='text-align:center;'>
+            <div style='font-size:2em; color:red;'>❌ السعر المدخل غير صالح!</div>
+            <a href="/" style='font-size:1.5em; color:#0078D7;'>العودة إلى الصفحة الرئيسية</a>
+          </div>
+        `);
+      }
+    });
+    return;
+  }
+
+  // endpoint لإعادة فحص التكوينات القديمة
+  if (req.method === "POST" && req.url === "/recheck_tokens") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(`
+      <html lang="ar">
+      <head>
+        <title>إعادة فحص التكوينات</title>
+        <meta http-equiv="refresh" content="5; url=/track_token">
+        <style>
+          body { font-family: Tahoma, Arial, sans-serif; background: #f5f6fa; margin: 0; padding: 20px; direction: rtl; text-align: center; }
+          .loading { color: #0078D7; font-size: 18px; margin: 20px 0; }
+        </style>
+      </head>
+      <body>
+        <h2>🔄 جاري إعادة فحص التكوينات...</h2>
+        <div class="loading">يرجى الانتظار، سيتم إعادة توجيهك إلى صفحة التتبع خلال 5 ثوانٍ</div>
+      </body>
+      </html>
+    `);
+    
+    // تشغيل إعادة الفحص في الخلفية
+    recheckOldTokens().catch(error => {
+      console.error('❌ خطأ في إعادة فحص التكوينات:', error.message);
+    });
+    
+    return;
+  }
+
+  // endpoint لإعادة فحص rugcheck لتوكن محدد
+  if (req.method === "GET" && req.url.startsWith("/recheck_rugcheck/")) {
+    const token = req.url.split("/recheck_rugcheck/")[1];
+    
+    if (!token || !trackedTokens[token]) {
+      res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>خطأ</title>
+          <meta charset="utf-8">
+        </head>
+        <body style="font-family: Arial; text-align: center; margin: 50px;">
+          <h2>❌ التوكن غير موجود</h2>
+          <a href="/">العودة للرئيسية</a>
+        </body>
+        </html>
+      `);
+      return;
+    }
+
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>إعادة فحص rugcheck</title>
+        <meta charset="utf-8">
+        <meta http-equiv="refresh" content="3;url=/">
+      </head>
+      <body style="font-family: Arial; text-align: center; margin: 50px;">
+        <h2>🔄 جاري إعادة فحص rugcheck للتوكن...</h2>
+        <p>سيتم إعادة توجيهك بعد 3 ثوانٍ</p>
+      </body>
+      </html>
+    `);
+
+    // إعادة فحص rugcheck في الخلفية
+    checkTokenSafety(token).then(newStatus => {
+      if (trackedTokens[token]) {
+        trackedTokens[token].rugcheckStatus = newStatus;
+        saveTrackedTokens();
+        console.log(`✅ تم إعادة فحص rugcheck للتوكن ${token}: ${newStatus}`);
+        
+        // حذف التوكنات الخطيرة والتحذيرية فوراً
+        if (newStatus === 'DANGER' || newStatus === 'WARNING') {
+          console.log(`[${token}] 🗑️ حذف التوكن ${newStatus === 'DANGER' ? 'الخطير' : 'التحذيري'} فوراً من المراقبة`);
+          stopTrackingToken(token);
+        }
+      }
+    }).catch(error => {
+      console.error(`❌ خطأ في إعادة فحص rugcheck للتوكن ${token}:`, error.message);
+    });
+
+    return;
+  }
+
+  // endpoint لإعادة تشغيل جميع التوكنات المتوقفة
+  if (req.method === "GET" && req.url === "/restart_all_tokens") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(`
+      <html lang="ar">
+      <head>
+        <title>إعادة تشغيل جميع التوكنات</title>
+        <meta http-equiv="refresh" content="5; url=/track_token">
+        <style>
+          body { font-family: Tahoma, Arial, sans-serif; background: #f5f6fa; margin: 0; padding: 20px; direction: rtl; text-align: center; }
+          .loading { color: #4CAF50; font-size: 18px; margin: 20px 0; }
+        </style>
+      </head>
+      <body>
+        <h2>🔄 جاري إعادة تشغيل جميع التوكنات...</h2>
+        <div class="loading">يرجى الانتظار، سيتم إعادة توجيهك إلى صفحة التتبع خلال 5 ثوانٍ</div>
+      </body>
+      </html>
+    `);
+    
+    // إعادة تشغيل جميع التوكنات في الخلفية
+    restartAllTokens().catch(error => {
+      console.error('❌ خطأ في إعادة تشغيل التوكنات:', error.message);
+    });
+    
+    return;
+  }
+
+  // endpoint لإعادة فحص عبر GET (للوصول السريع)
+  if (req.method === "GET" && req.url === "/recheck_tokens") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(`
+      <html lang="ar">
+      <head>
+        <title>إعادة فحص التكوينات</title>
+        <meta http-equiv="refresh" content="5; url=/track_token">
+        <style>
+          body { font-family: Tahoma, Arial, sans-serif; background: #f5f6fa; margin: 0; padding: 20px; direction: rtl; text-align: center; }
+          .loading { color: #0078D7; font-size: 18px; margin: 20px 0; }
+        </style>
+      </head>
+      <body>
+        <h2>🔄 جاري إعادة فحص التكوينات...</h2>
+        <div class="loading">يرجى الانتظار، سيتم إعادة توجيهك إلى صفحة التتبع خلال 5 ثوانٍ</div>
+      </body>
+      </html>
+    `);
+    
+    // تشغيل إعادة الفحص في الخلفية
+    recheckOldTokens().catch(error => {
+      console.error('❌ خطأ في إعادة فحص التكوينات:', error.message);
+    });
+    
+    return;
+  }
+
+  // endpoint للحذف المباشر بدون موافقة (GET request)
+  if (req.method === "GET" && req.url === "/delete_dangerous_now") {
+    const deletedTokens = deleteDangerousTokens();
+    
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(`
+      <html lang="ar">
+      <head>
+        <title>حذف التوكنات الخطيرة</title>
+        <meta http-equiv="refresh" content="2; url=/track_token">
+        <style>
+          body { font-family: Tahoma, Arial, sans-serif; background: #f5f6fa; margin: 0; padding: 20px; direction: rtl; text-align: center; }
+          .result { font-size: 18px; margin: 20px 0; }
+          .success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 15px; border-radius: 8px; margin: 20px auto; max-width: 600px; }
+          .info { background: #d1ecf1; border: 1px solid #bee5eb; color: #0c5460; padding: 15px; border-radius: 8px; margin: 20px auto; max-width: 600px; }
+          .count { color: #dc3545; font-weight: bold; font-size: 20px; }
+          .token-code { background: #f8f9fa; border: 1px solid #dee2e6; padding: 4px 8px; border-radius: 4px; font-family: monospace; margin: 2px; display: inline-block; }
+        </style>
+      </head>
+      <body>
+        <h2>🗑️ تم تنفيذ الحذف مباشرة!</h2>
+        ${deletedTokens.length > 0 ? `
+          <div class="success">
+            <div class="result">✅ تم حذف <span class="count">${deletedTokens.length}</span> توكن نهائياً من المراقب</div>
+            <br/>
+            <strong>التوكنات المحذوفة:</strong><br/>
+            ${deletedTokens.map(token => `<span class="token-code">${token}</span>`).join(' ')}
+          </div>
+        ` : `
+          <div class="info">
+            <div class="result">ℹ️ لا توجد توكنات خطيرة أو تحذيرية للحذف</div>
+            <div>جميع التوكنات المراقبة آمنة حالياً</div>
+          </div>
+        `}
+        <div style="color: #666; margin-top: 20px;">سيتم إعادة توجيهك إلى صفحة التتبع خلال ثانيتين...</div>
+      </body>
+      </html>
+    `);
+    
+    return;
+  }
+
+  // endpoint لحذف التوكنات الخطيرة والتحذيرية
+  if (req.method === "POST" && req.url === "/delete_dangerous") {
+    try {
+      const result = await deleteDangerousTokens();
+      
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(`
+        <html lang="ar">
+        <head>
+          <title>حذف التوكنات الخطيرة</title>
+          <meta http-equiv="refresh" content="3; url=/track_token">
+          <style>
+            body { font-family: Tahoma, Arial, sans-serif; background: #f5f6fa; margin: 0; padding: 20px; direction: rtl; text-align: center; }
+            .success { color: #4CAF50; font-size: 18px; margin: 20px 0; }
+            .info { color: #666; font-size: 14px; margin: 10px 0; }
+            .token-list { background: #fff; border-radius: 8px; padding: 15px; margin: 20px auto; max-width: 500px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            .token-item { padding: 8px; border-bottom: 1px solid #eee; }
+            .token-item:last-child { border-bottom: none; }
+          </style>
+        </head>
+        <body>
+          <h2>🗑️ تم حذف التوكنات الخطيرة</h2>
+          <div class="success">✅ تم حذف ${result.deleted} توكن نهائياً من المراقب</div>
+          ${result.tokens.length > 0 ? `
+            <div class="token-list">
+              <h3>التوكنات المحذوفة:</h3>
+              ${result.tokens.map(t => `
+                <div class="token-item">
+                  <strong>${t.token}</strong> - 
+                  <span style="color: ${t.status === 'DANGER' ? '#F44336' : '#FF9800'};">
+                    ${t.status === 'DANGER' ? '⚠️ خطر' : '🔶 تحذير'}
+                  </span>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+          <div class="info">سيتم إعادة توجيهك إلى صفحة التتبع خلال 3 ثوانٍ</div>
+        </body>
+        </html>
+      `);
+      
+    } catch (error) {
+      console.error('❌ خطأ في حذف التوكنات الخطيرة:', error.message);
+      res.writeHead(500, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(`
+        <html lang="ar">
+        <head>
+          <title>خطأ في الحذف</title>
+          <meta http-equiv="refresh" content="3; url=/track_token">
+          <style>
+            body { font-family: Tahoma, Arial, sans-serif; background: #f5f6fa; margin: 0; padding: 20px; direction: rtl; text-align: center; }
+            .error { color: #F44336; font-size: 18px; margin: 20px 0; }
+          </style>
+        </head>
+        <body>
+          <h2>❌ خطأ في العملية</h2>
+          <div class="error">حدث خطأ أثناء حذف التوكنات: ${error.message}</div>
+          <div>سيتم إعادة توجيهك إلى صفحة التتبع خلال 3 ثوانٍ</div>
+        </body>
+        </html>
+      `);
+    }
+    return;
+  }
+
+  // endpoint لحذف التوكنات الخطيرة عبر GET (للوصول السريع)
+  if (req.method === "GET" && req.url === "/delete_dangerous") {
+    try {
+      const result = await deleteDangerousTokens();
+      
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(`
+        <html lang="ar">
+        <head>
+          <title>حذف التوكنات الخطيرة</title>
+          <meta http-equiv="refresh" content="3; url=/track_token">
+          <style>
+            body { font-family: Tahoma, Arial, sans-serif; background: #f5f6fa; margin: 0; padding: 20px; direction: rtl; text-align: center; }
+            .success { color: #4CAF50; font-size: 18px; margin: 20px 0; }
+            .info { color: #666; font-size: 14px; margin: 10px 0; }
+            .token-list { background: #fff; border-radius: 8px; padding: 15px; margin: 20px auto; max-width: 500px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            .token-item { padding: 8px; border-bottom: 1px solid #eee; }
+            .token-item:last-child { border-bottom: none; }
+          </style>
+        </head>
+        <body>
+          <h2>🗑️ تم حذف التوكنات الخطيرة</h2>
+          <div class="success">✅ تم حذف ${result.deleted} توكن نهائياً من المراقب</div>
+          ${result.tokens.length > 0 ? `
+            <div class="token-list">
+              <h3>التوكنات المحذوفة:</h3>
+              ${result.tokens.map(t => `
+                <div class="token-item">
+                  <strong>${t.token}</strong> - 
+                  <span style="color: ${t.status === 'DANGER' ? '#F44336' : '#FF9800'};">
+                    ${t.status === 'DANGER' ? '⚠️ خطر' : '🔶 تحذير'}
+                  </span>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+          <div class="info">سيتم إعادة توجيهك إلى صفحة التتبع خلال 3 ثوانٍ</div>
+        </body>
+        </html>
+      `);
+      
+    } catch (error) {
+      console.error('❌ خطأ في حذف التوكنات الخطيرة:', error.message);
+      res.writeHead(500, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(`
+        <html lang="ar">
+        <head>
+          <title>خطأ في الحذف</title>
+          <meta http-equiv="refresh" content="3; url=/track_token">
+          <style>
+            body { font-family: Tahoma, Arial, sans-serif; background: #f5f6fa; margin: 0; padding: 20px; direction: rtl; text-align: center; }
+            .error { color: #F44336; font-size: 18px; margin: 20px 0; }
+          </style>
+        </head>
+        <body>
+          <h2>❌ خطأ في العملية</h2>
+          <div class="error">حدث خطأ أثناء حذف التوكنات: ${error.message}</div>
+          <div>سيتم إعادة توجيهك إلى صفحة التتبع خلال 3 ثوانٍ</div>
+        </body>
+        </html>
+      `);
+    }
+    return;
+  }
+
+  // ...existing code...
+  if (req.method === "GET" && req.url.startsWith("/track_token")) {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(`
+      <html lang="ar">
+      <head>
+        <title>Token Tracker</title>
+        <meta http-equiv="refresh" content="10">
+        <style>
+          body { font-family: Tahoma, Arial, sans-serif; background: #f5f6fa; margin: 0; padding: 20px; direction: rtl; }
+          h2 { text-align: center; color: #0078D7; margin-top: 30px; letter-spacing: 1px; text-shadow: 1px 1px 2px rgba(0,0,0,0.1); }
+          .tokens-container { max-width: 800px; margin: 30px auto; padding: 0 10px; }
+          .token-card {
+            background: linear-gradient(145deg, #ffffff, #f8f9fa);
+            border: 2px solid #e1e8ed;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.06);
+            padding: 20px 25px;
+            margin-bottom: 25px;
+            border-radius: 15px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+          }
+          .token-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #0078D7, #1890ff, #52c41a);
+            opacity: 0.8;
+          }
+          .token-card:hover { 
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15), 0 4px 8px rgba(0,0,0,0.1);
+            border-color: #0078D7;
+          }
+          .token-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #f0f0f0;
+          }
+          .token-title {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #2c3e50;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+          }
+          .token-label { 
+            color: #34495e; 
+            font-weight: 600; 
+            display: inline-block; 
+            min-width: 170px;
+            font-size: 0.95em;
+          }
+          .token-value { color: #0078D7; font-weight: bold; }
+          .token-row { 
+            margin-bottom: 8px;
+            padding: 5px 0;
+            border-bottom: 1px dotted #e8e8e8;
+          }
+          .token-row:last-child {
+            border-bottom: none;
+          }
+          .delete-btn {
+            background: linear-gradient(145deg, #e53935, #d32f2f);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 16px;
+            font-size: 0.9em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+          }
+          .delete-btn:hover { 
+            background: linear-gradient(145deg, #d32f2f, #b71c1c);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+          }
+        </style>
+      </head>
+      <body>
+        <h2>متابعة التوكنات (Token Tracker)</h2>
+        <div style='text-align: center; margin-bottom: 20px; color: #666; font-size: 0.9em;'>
+          🔄 التوكنات محفوظة تلقائياً وتستمر المراقبة حتى بعد إعادة تشغيل البرنامج<br/>
+          🛡️ يتم التحقق من كل توكن على rugcheck.xyz: <span style="color: #4CAF50;">✅ آمن</span> | <span style="color: #FF9800;">🔶 تحذير</span> | <span style="color: #F44336;">⚠️ خطر</span> | <span style="color: #666;">❓ غير محقق</span><br/>
+          💧 يتم فحص السيولة من gmgn.ai: <span style="color: #4CAF50;">✅ سيولة طبيعية</span> | <span style="color: #FF5722;">⚠️ سيولة منخفضة</span> | <span style="color: #666;">❓ غير محققة</span><br/>
+          � قيمة SOL المستخرجة من رسالة الفرز الأصلية (الحد الأدنى: 10.00 SOL)<br/>
+          �🚫 <strong>المراقبة تتوقف تلقائياً عند اكتشاف سيولة منخفضة</strong>
+        </div>
+        <div style='text-align: center; margin-bottom: 15px; color: #FF6B6B; font-size: 0.9em; font-weight: bold;'>
+          🗑️ الحذف التلقائي للتوكنات الخطيرة والتحذيرية كل ساعة
+        </div>
+        <div style='text-align: center; margin-bottom: 20px;'>
+          <a href='/restart_all_tokens' style='
+            background: linear-gradient(45deg, #4CAF50, #8BC34A);
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            display: inline-block;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+            margin: 0 10px;
+          ' onmouseover='this.style.transform="translateY(-2px)"' onmouseout='this.style.transform="translateY(0)"'>
+            🔄 إعادة تشغيل جميع التوكنات
+          </a>
+          <a href='/recheck_tokens' style='
+            background: linear-gradient(45deg, #FF6B6B, #4ECDC4);
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            display: inline-block;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+            margin: 0 10px;
+          ' onmouseover='this.style.transform="translateY(-2px)"' onmouseout='this.style.transform="translateY(0)"'>
+            🔄 إعادة فحص التكوينات القديمة
+          </a>
+          <a href='/delete_dangerous_now' style='
+            background: linear-gradient(45deg, #F44336, #FF9800);
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            display: inline-block;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+            margin: 0 10px;
+          ' onmouseover='this.style.transform="translateY(-2px)"' onmouseout='this.style.transform="translateY(0)"'>
+            🗑️ حذف الخطيرة الآن (تلقائي كل ساعة)
+          </a>
+        </div>
+        <div class="tokens-container">
+        ${Object.values(trackedTokens)
+          .sort((a, b) => b.startTime - a.startTime) // الأحدث أولاً
+          .map(t => {
+            let percent = '';
+            let firstPriceDisplay = '';
+            let lastPriceDisplay = '';
+            let priceComparison = '';
+            
+            if (t.firstPrice && t.lastPrice && typeof t.firstPrice === 'number' && typeof t.lastPrice === 'number') {
+              const p = ((t.lastPrice - t.firstPrice) / t.firstPrice) * 100;
+              percent = (p >= 0 ? '+' : '') + p.toFixed(2) + '%';
+              firstPriceDisplay = t.firstPrice + '$';
+              lastPriceDisplay = t.lastPrice + '$';
+              
+              // مقارنة النسبة بين أعلى سعر والسعر الأول
+              const ratio = (t.lastPrice / t.firstPrice).toFixed(2);
+              if (ratio >= 10) {
+                priceComparison = `🚀 ارتفع ${ratio}x من السعر الأول`;
+              } else if (ratio >= 5) {
+                priceComparison = `📈 ارتفع ${ratio}x من السعر الأول`;
+              } else if (ratio >= 2) {
+                priceComparison = `⬆️ ارتفع ${ratio}x من السعر الأول`;
+              } else if (ratio > 1) {
+                priceComparison = `🔼 ارتفع ${ratio}x من السعر الأول`;
+              } else if (ratio == 1) {
+                priceComparison = `➡️ لا تغيير في السعر`;
+              } else {
+                priceComparison = `🔻 انخفض إلى ${ratio}x من السعر الأول`;
+              }
+            } else if (t.firstPrice && typeof t.firstPrice === 'string') {
+              firstPriceDisplay = t.firstPrice;
+              lastPriceDisplay = t.lastPrice || 'جاري التحميل...';
+              percent = 'غير متاح';
+              priceComparison = 'غير متاح';
+            } else {
+              firstPriceDisplay = 'جاري التحميل...';
+              lastPriceDisplay = 'جاري التحميل...';
+              percent = '...';
+              priceComparison = '...';
+            }
+            
+            // حساب مدة المراقبة hh:mm:ss
+            let duration = '...';
+            if (t.startTime) {
+              const ms = Date.now() - t.startTime.getTime();
+              const totalSeconds = Math.floor(ms / 1000);
+              const hours = Math.floor(totalSeconds / 3600);
+              const minutes = Math.floor((totalSeconds % 3600) / 60);
+              const seconds = totalSeconds % 60;
+              duration = `${hours.toString().padStart(2,'0')}:${minutes.toString().padStart(2,'0')}:${seconds.toString().padStart(2,'0')}`;
+            }
+            
+            const statusIcon = t.stopped && t.lowLiquidity ? '🚫' : (t.reached50 ? '✅️' : '🔶');
+            
+            // عرض اسم التوكن أو الرمز إذا كان متاحاً
+            let tokenDisplayName = t.token;
+            if (t.name && t.symbol) {
+              tokenDisplayName = `${t.name} (${t.symbol})`;
+            } else if (t.name) {
+              tokenDisplayName = t.name;
+            } else if (t.symbol) {
+              tokenDisplayName = `${t.symbol}`;
+            }
+            
+            return `
+              <div class="token-card" data-token="${t.token}">
+                <div class="token-header">
+                  <span class="token-title">${statusIcon} <a href="https://dexscreener.com/solana/${t.token}" target="_blank" style="color: #2196F3; text-decoration: none; font-weight: bold;">${tokenDisplayName}</a></span>
+                  <div style="display: flex; gap: 5px;">
+                    <button class="recheck-btn" onclick="recheckRugcheck('${t.token}')" style="
+                      background: #2196F3;
+                      color: white;
+                      border: none;
+                      padding: 5px 10px;
+                      border-radius: 3px;
+                      cursor: pointer;
+                      font-size: 12px;
+                    ">🔄 إعادة فحص</button>
+                    <button class="price-details-btn" onclick="viewPriceDetails('${t.token}')" style="
+                      background: #4CAF50;
+                      color: white;
+                      border: none;
+                      padding: 5px 10px;
+                      border-radius: 3px;
+                      cursor: pointer;
+                      font-size: 12px;
+                    ">📊 تفاصيل السعر</button>
+                    <button class="delete-btn" onclick="deleteToken('${t.token}')">حذف</button>
+                  </div>
+                </div>
+                <div class="token-row"><span class="token-label">🔗 عنوان التوكن:</span> <span style="font-family: monospace; font-size: 0.85em; color: #666; word-break: break-all;">${t.token}</span></div>
+                <div class="token-row"><span class="token-label">🛡️ حالة <a href="https://rugcheck.xyz/tokens/${t.token}" target="_blank" style="color: #2196F3; text-decoration: none; font-weight: bold;">rugcheck.xyz</a>:</span> <span style="color: ${t.rugcheckStatus === 'SAFE' ? '#4CAF50' : t.rugcheckStatus === 'DANGER' ? '#F44336' : t.rugcheckStatus === 'WARNING' ? '#FF9800' : '#666'}; font-weight: bold;">${t.rugcheckStatus === 'SAFE' ? '✅ آمن' : t.rugcheckStatus === 'DANGER' ? '🔴 خطر' : t.rugcheckStatus === 'WARNING' ? '⚠️ تحذير' : '❓ لم يتم التحقق'}</span></div>
+                <div class="token-row"><span class="token-label">💧 السيولة:</span> <span style="color: ${t.lowLiquidity === true ? '#FF5722' : t.lowLiquidity === false ? '#4CAF50' : '#666'}; font-weight: bold;">${t.lowLiquidity === true ? '⚠️ منخفضة' : t.lowLiquidity === false ? '✅ طبيعية' : '❓ لم يتم التحقق'}</span></div>
+                <div class="token-row"><span class="token-label">� قيمة SOL:</span> <span style="color: #FF9800; font-weight: bold;">${t.solValue ? t.solValue.toFixed(2) + ' SOL' : '❓ غير محددة'}</span></div>
+                <div class="token-row"><span class="token-label">�🕐 مدة المراقبة:</span> ${duration}</div>
+                <div class="token-row"><span class="token-label">💰 السعر الأول:</span> ${firstPriceDisplay}</div>
+                <div class="token-row"><span class="token-label">💰 السعر الحالي:</span> ${lastPriceDisplay}</div>
+                <div class="token-row"><span class="token-label">📊 التغيير:</span> ${percent}</div>
+                <div class="token-row"><span class="token-label">� أعلى نسبة ارتفاع:</span> <span style="color: #4CAF50; font-weight: bold;">${t.maxRisePercentage ? t.maxRisePercentage.toFixed(2) + '%' : '0%'}</span></div>
+                <div class="token-row"><span class="token-label">�📈 المقارنة:</span> ${priceComparison}</div>
+                <div class="token-row"><span class="token-label">🎯 حقق 50%:</span> ${t.reached50 ? '✅ نعم' : '❌ لا'}</div>
+                <div class="token-row"><span class="token-label">⏰ بدء المراقبة:</span> ${t.startTime ? t.startTime.toLocaleString('ar-EG') : 'غير محدد'}</div>
+                ${t.stopped ? '<div class="token-row"><span class="token-label">🛑 السبب:</span> ' + (t.lowLiquidity ? 'توقفت بسبب السيولة المنخفضة' : t.rugcheckStatus === 'DANGER' || t.rugcheckStatus === 'WARNING' ? 'توقفت بسبب حالة rugcheck' : 'توقفت لسبب غير معروف') + '</div>' : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>
+        
+        <script>
+          function deleteToken(token) {
+            // حذف مباشر بدون طلب موافقة
+            fetch('/delete-token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token })
+            })
+            .then(response => response.json())
+            .then(data => {
+              if (data.success) {
+                location.reload();
+              } else {
+                alert('فشل في الحذف: ' + data.error);
+              }
+            })
+            .catch(err => {
+              console.error('خطأ في الحذف:', err);
+              alert('خطأ في الاتصال: ' + err.message);
+            });
+          }
+          
+          function recheckRugcheck(token) {
+            if (confirm('هل تريد إعادة فحص rugcheck لهذا التوكن؟')) {
+              window.open('/recheck_rugcheck/' + token, '_blank');
+              // إعادة تحميل الصفحة بعد 3 ثوانٍ
+              setTimeout(() => location.reload(), 3000);
+            }
+          }
+          
+          function viewPriceDetails(token) {
+            window.open('/price_details/' + token, '_blank');
+          }
+          
+          // تحديث الصفحة كل 10 ثوانِ
+          setTimeout(() => location.reload(), 10000);
+        </script>
+      </body>
+    </html>
+    `);
+    return;
+  }
+
+  // صفحة تفاصيل السعر للتوكن
+  if (req.method === "GET" && req.url.startsWith("/price_details/")) {
+    const token = req.url.split("/price_details/")[1];
+    
+    if (!trackedTokens[token]) {
+      res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(`
+        <html lang="ar">
+        <head>
+          <title>خطأ - التوكن غير موجود</title>
+          <style>
+            body { font-family: Tahoma, Arial, sans-serif; background: #f5f6fa; margin: 0; padding: 20px; direction: rtl; text-align: center; }
+            .error { background: #FF6B6B; color: white; padding: 20px; border-radius: 10px; margin: 20px auto; max-width: 500px; }
+          </style>
+        </head>
+        <body>
+          <div class="error">
+            <h2>❌ خطأ</h2>
+            <p>التوكن المطلوب غير موجود في قائمة المراقبة</p>
+            <button onclick="window.close()" style="background: white; color: #FF6B6B; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 16px;">إغلاق</button>
+          </div>
+        </body>
+        </html>
+      `);
+      return;
+    }
+
+    const t = trackedTokens[token];
+    
+    // عرض اسم التوكن أو الرمز إذا كان متاحاً
+    let tokenDisplayName = token;
+    if (t.name && t.symbol) {
+      tokenDisplayName = `${t.name} (${t.symbol})`;
+    } else if (t.name) {
+      tokenDisplayName = t.name;
+    } else if (t.symbol) {
+      tokenDisplayName = `${t.symbol}`;
+    }
+
+    // أعلى سعر وصل إليه التوكن
+    const highestPriceDisplay = t.highestPrice ? `$${formatPrice(t.highestPrice)}` : 'غير متوفر';
+    
+    // أعلى نسبة ارتفاع
+    const maxRiseDisplay = t.maxRisePercentage ? `${t.maxRisePercentage.toFixed(2)}%` : '0%';
+    
+    // تحضير بيانات الأسعار كل 20 ثانية (آخر 20 سجل)
+    const recentPriceHistory = t.priceHistoryEvery20s ? t.priceHistoryEvery20s.slice(-20) : [];
+    
+    let priceHistoryHTML = '';
+    if (recentPriceHistory.length > 0) {
+      priceHistoryHTML = recentPriceHistory.map(record => {
+        const changeSign = record.changePercent >= 0 ? '+' : '';
+        const changeColor = record.changePercent >= 0 ? '#4CAF50' : '#F44336';
+        const timestamp = new Date(record.timestamp).toLocaleTimeString('ar-EG');
+        
+        return `
+          <div style="
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          ">
+            <div style="font-size: 18px; font-weight: bold; color: #333;">
+              $${formatPrice(record.price)}
+            </div>
+            <div style="font-size: 16px; font-weight: bold; color: ${changeColor};">
+              ${changeSign}${record.changePercent.toFixed(2)}%
+            </div>
+            <div style="font-size: 14px; color: #666;">
+              ${timestamp}
+            </div>
+          </div>
+        `;
+      }).join('');
+    } else {
+      priceHistoryHTML = `
+        <div style="
+          background: white;
+          border: 1px solid #ddd;
+          border-radius: 8px;
+          padding: 20px;
+          margin: 10px 0;
+          text-align: center;
+          color: #666;
+        ">
+          لا توجد بيانات تاريخية متاحة بعد
+        </div>
+      `;
+    }
+
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(`
+      <html lang="ar">
+      <head>
+        <title>تفاصيل السعر - ${tokenDisplayName}</title>
+        <meta http-equiv="refresh" content="20">
+        <style>
+          body { 
+            font-family: Tahoma, Arial, sans-serif; 
+            background: #f5f6fa; 
+            margin: 0; 
+            padding: 20px; 
+            direction: rtl; 
+          }
+          .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+          }
+          .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #0078D7;
+            padding-bottom: 20px;
+          }
+          .title {
+            color: #0078D7;
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+          }
+          .token-address {
+            font-family: monospace;
+            font-size: 14px;
+            color: #666;
+            word-break: break-all;
+          }
+          .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+          }
+          .info-card {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid #e9ecef;
+          }
+          .info-label {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 10px;
+          }
+          .info-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+          }
+          .highest-price { color: #4CAF50; }
+          .max-rise { color: #FF9800; }
+          .history-section {
+            margin-top: 30px;
+          }
+          .history-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 20px;
+            text-align: center;
+          }
+          .close-btn {
+            background: #F44336;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            display: block;
+            margin: 20px auto 0;
+          }
+          .close-btn:hover {
+            background: #D32F2F;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <div class="title">📊 تفاصيل السعر</div>
+            <div style="font-size: 18px; color: #333; margin: 10px 0;">
+              <a href="https://dexscreener.com/solana/${token}" target="_blank" style="color: #0078D7; text-decoration: none;">
+                ${tokenDisplayName}
+              </a>
+            </div>
+            <div class="token-address">${token}</div>
+          </div>
+          
+          <div class="info-grid">
+            <div class="info-card">
+              <div class="info-label">🚀 أعلى سعر وصل إليه التوكن</div>
+              <div class="info-value highest-price">${highestPriceDisplay}</div>
+            </div>
+            <div class="info-card">
+              <div class="info-label">📈 أعلى نسبة ارتفاع</div>
+              <div class="info-value max-rise">${maxRiseDisplay}</div>
+            </div>
+          </div>
+          
+          <div class="history-section">
+            <div class="history-title">📊 تاريخ الأسعار (كل 20 ثانية - آخر 20 سجل)</div>
+            ${priceHistoryHTML}
+          </div>
+          
+          <button class="close-btn" onclick="window.close()">إغلاق النافذة</button>
+        </div>
+      </body>
+      </html>
+    `);
+    return;
+  }
+});
+
+server.listen(PORT, async () => {
+  console.log(`🌐 Server running on port ${PORT}`);
+  console.log(`🔗 Token tracking link: http://localhost:${PORT}/track_token`);
+  
+  // تفعيل الحذف التلقائي للتوكنات الخطيرة والتحذيرية كل ساعة
+  startAutoDeletion();
+  console.log('✅ Automatic deletion enabled every hour for dangerous and warning tokens')
+  
+  // بدء إعادة فحص التكوينات القديمة في الخلفية
+  setTimeout(async () => {
+    try {
+      await recheckOldTokens();
+    } catch (error) {
+      console.error('❌ خطأ في إعادة فحص التكوينات القديمة:', error.message);
+    }
+  }, 5000); // انتظار 5 ثوانٍ بعد بدء السيرفر
+});
+
+// دالة إرسال الرسائل للمجموعات
+async function sendToGroups(message) {
+  try {
+    // قائمة المجموعات المستهدفة (يمكن تعديلها)
+    const targetGroups = [
+      // أضف معرفات المجموعات هنا
+      // مثال: -1001234567890
+    ];
+
+    for (const groupId of targetGroups) {
+      try {
+        // هنا يمكن إضافة كود إرسال الرسالة عبر Telegram
+        console.log(`إرسال رسالة للمجموعة ${groupId}: ${message}`);
+        
+        // مثال لإرسال رسالة (يحتاج إلى تفعيل TelegramClient)
+        /*
+        await client.sendMessage(groupId, {
+          message: message,
+          parseMode: 'markdown'
+        });
+        */
+      } catch (error) {
+        console.error(`خطأ في إرسال الرسالة للمجموعة ${groupId}: ${error.message}`);
+      }
+    }
+  } catch (error) {
+    console.error(`خطأ عام في إرسال الرسائل: ${error.message}`);
+  }
+}

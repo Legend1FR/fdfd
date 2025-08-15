@@ -1,0 +1,12 @@
+AASUBXNGpJq2kseayQihcqTjfc8EbT3W5iQwjXFQpbonk : Counts: 1
+Counts: 3 To Counts: 1 = 5second
+Counts: 5 To Counts: 3 = 6second
+Counts: 7 To Counts: 5 = 4second
+Counts: 8 To Counts: 7 = 5second
+Counts: 60 To Counts: 8 = 8second
+Counts: 3 To Counts: 60 = 6second
+Counts: 60 To Counts: 3 = 9second
+Counts: 8 To Counts: 60 = 4second
+Counts: 90 To Counts: 8 = 8second
+فاشل ❌️
+Counts: 88 To Counts: 90 = 15second

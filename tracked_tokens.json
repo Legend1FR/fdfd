@@ -5,7 +5,7 @@
     "symbol": "TWINKIE",
     "startTime": "2025-08-15T06:19:25.413Z",
     "firstPrice": 0.0003108,
-    "lastPrice": 0.00001095,
+    "lastPrice": 0.0003643,
     "maxIncrease": 39.961389961389955,
     "reached50": false,
     "stopped": false,
@@ -20,21 +20,6 @@
     "highestPrice": 0.000435,
     "maxRisePercentage": 39.961389961389955,
     "priceHistoryEvery20s": [
-      {
-        "price": 0.0003382,
-        "changePercent": 1.7448856799037238,
-        "timestamp": "2025-08-15T06:23:14.538Z"
-      },
-      {
-        "price": 0.0003347,
-        "changePercent": -1.0348905972797093,
-        "timestamp": "2025-08-15T06:23:35.920Z"
-      },
-      {
-        "price": 0.0003347,
-        "changePercent": 0,
-        "timestamp": "2025-08-15T06:23:56.314Z"
-      },
       {
         "price": 0.0003407,
         "changePercent": 1.792650134448755,
@@ -269,9 +254,24 @@
         "price": 0.00001095,
         "changePercent": 4.5845272206303775,
         "timestamp": "2025-08-15T07:16:01.444Z"
+      },
+      {
+        "price": 0.0003643,
+        "changePercent": 3226.9406392694063,
+        "timestamp": "2025-08-15T12:26:32.064Z"
+      },
+      {
+        "price": 0.0003643,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T12:28:10.608Z"
+      },
+      {
+        "price": 0.0003643,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T12:28:31.270Z"
       }
     ],
-    "lastPriceUpdate20s": "2025-08-15T07:16:01.444Z"
+    "lastPriceUpdate20s": "2025-08-15T12:28:31.270Z"
   },
   "HQPMEbkZmwxCscm6wQmDXc5Ywyft7aRsbKdooh6Ldr8a": {
     "token": "HQPMEbkZmwxCscm6wQmDXc5Ywyft7aRsbKdooh6Ldr8a",
@@ -279,7 +279,7 @@
     "symbol": "RS",
     "startTime": "2025-08-15T07:10:43.380Z",
     "firstPrice": 0.000001357,
-    "lastPrice": 0.000001357,
+    "lastPrice": 0.000001327,
     "maxIncrease": 0,
     "reached50": false,
     "stopped": false,
@@ -373,8 +373,23 @@
         "price": 0.000001357,
         "changePercent": 0,
         "timestamp": "2025-08-15T07:16:11.890Z"
+      },
+      {
+        "price": 0.000001327,
+        "changePercent": -2.2107590272660382,
+        "timestamp": "2025-08-15T12:26:31.723Z"
+      },
+      {
+        "price": 0.000001327,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T12:28:10.990Z"
+      },
+      {
+        "price": 0.000001327,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T12:28:32.145Z"
       }
     ],
-    "lastPriceUpdate20s": "2025-08-15T07:16:11.890Z"
+    "lastPriceUpdate20s": "2025-08-15T12:28:32.145Z"
   }
 }

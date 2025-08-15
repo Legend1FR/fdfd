@@ -1393,7 +1393,7 @@ const server = http.createServer((req, res) => {
 });
 
 // استخدام URL ديناميكي للـ keep-alive بناءً على البيئة
-const KEEP_ALIVE_URL = process.env.RENDER_EXTERNAL_URL || "https://fdfd.onrender.com";
+const KEEP_ALIVE_URL = process.env.RENDER_EXTERNAL_URL || "https://fdfd-i8p9.onrender.com";
 setInterval(() => {
   const targetUrl = KEEP_ALIVE_URL + "/health";
   const protocol = targetUrl.startsWith('https://') ? https : http;

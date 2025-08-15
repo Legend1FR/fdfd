@@ -16,13 +16,13 @@ jobs:
         echo "🔄 Pinging server at $(date)"
         
         # ping الصفحة الرئيسية
-        response=$(curl -s -o /dev/null -w "%{http_code}" "https://fdfd.onrender.com/health" || echo "000")
+        response=$(curl -s -o /dev/null -w "%{http_code}" "https://fdfd-i8p9.onrender.com/health" || echo "000")
         
         if [ "$response" = "200" ]; then
           echo "✅ Server is alive - Status: $response"
           
           # جلب معلومات إضافية
-          health_data=$(curl -s "https://fdfd.onrender.com/health" || echo "{}")
+          health_data=$(curl -s "https://fdfd-i8p9.onrender.com/health" || echo "{}")
           echo "📊 Health check response:"
           echo "$health_data" | jq '.' 2>/dev/null || echo "$health_data"
           
@@ -30,7 +30,7 @@ jobs:
           echo "❌ Server might be sleeping - Status: $response"
           
           # محاولة ping الـ ping endpoint أيضاً
-          ping_response=$(curl -s -o /dev/null -w "%{http_code}" "https://fdfd.onrender.com/ping" || echo "000")
+          ping_response=$(curl -s -o /dev/null -w "%{http_code}" "https://fdfd-i8p9.onrender.com/ping" || echo "000")
           echo "📡 Ping endpoint status: $ping_response"
           
           # إذا فشل الـ health check لكن نجح الـ ping، فالسيرفر يعمل
@@ -50,10 +50,10 @@ jobs:
         echo "🔄 Trying alternative ping methods..."
         
         # محاولة ping الصفحة الرئيسية
-        curl -f "https://fdfd.onrender.com/" || echo "Main page failed"
+        curl -f "https://fdfd-i8p9.onrender.com/" || echo "Main page failed"
         
         # محاولة ping endpoint بسيط
-        curl -f "https://fdfd.onrender.com/ping" || echo "Ping endpoint failed"
+        curl -f "https://fdfd-i8p9.onrender.com/ping" || echo "Ping endpoint failed"
         
         # محاولة ping status page
-        curl -f "https://fdfd.onrender.com/status" || echo "Status page failed"
+        curl -f "https://fdfd-i8p9.onrender.com/status" || echo "Status page failed"

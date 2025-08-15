@@ -10,7 +10,7 @@ const https = require('https');
 const http = require('http');
 
 // إعدادات المراقبة
-const SERVER_URL = process.env.SERVER_URL || 'https://fdfd.onrender.com';
+const SERVER_URL = process.env.SERVER_URL || 'https://fdfd-i8p9.onrender.com';
 const PING_INTERVAL = process.env.PING_INTERVAL || 8 * 60 * 1000; // 8 دقائق
 const WEBHOOK_URL = process.env.WEBHOOK_URL || null; // Discord/Slack webhook للتنبيهات
 

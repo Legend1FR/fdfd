@@ -975,12 +975,12 @@ function stopTrackingToken(token) {
 }
 
 // بيانات الدخول تلقائية للسيرفر
-const PHONE_NUMBER = "+966XXXXXXXXX";  // ضع رقمك هنا
-const PASSWORD = "YOUR_PASSWORD"; // إذا كان لديك كلمة مرور 2FA
-const PHONE_CODE = undefined; // يمكن تركه undefined ليتم تجاهله
+const PHONE_NUMBER = process.env.PHONE_NUMBER || "+966XXXXXXXXX";  // ضع رقمك هنا
+const PASSWORD = process.env.PASSWORD || "YOUR_PASSWORD"; // إذا كان لديك كلمة مرور 2FA
+const PHONE_CODE = process.env.PHONE_CODE || undefined; // يمكن تركه undefined ليتم تجاهله
 
-const apiId = 23299626;
-const apiHash = "89de50a19288ec535e8b008ae2ff268d";
+const apiId = parseInt(process.env.API_ID) || 23299626;
+const apiHash = process.env.API_HASH || "89de50a19288ec535e8b008ae2ff268d";
 
 console.log("🚀 Bot is now running 24/7 on the server!");
 
@@ -1020,27 +1020,54 @@ if (fs.existsSync("session.txt")) {
   // تعيين العميل العام للاستخدام في الوظائف الأخرى
   globalClient = client;
 
+  // التحقق من وجود جلسة صالحة
+  const hasValidSession = stringSession.session && stringSession.session.length > 0;
+  
+  if (hasValidSession) {
+    console.log("🔐 استخدام الجلسة المحفوظة...");
+  }
+
   // تسجيل الدخول عند الحاجة فقط
   try {
-    await client.start({
-      phoneNumber: async () => PHONE_NUMBER,
-      password: async () => PASSWORD,
-      phoneCode: async () => PHONE_CODE,
-      onError: (err) => console.log("❌ خطأ:", err),
-    });
-  } catch (err) {
-    if (err.errorMessage === 'AUTH_KEY_DUPLICATED') {
-      console.error('❌ AUTH_KEY_DUPLICATED: سيتم حذف الجلسة القديمة وإنشاء جلسة جديدة.');
-      fs.unlinkSync('session.txt'); // حذف ملف الجلسة القديمة
-      stringSession = new StringSession(""); // إعادة تعيين الجلسة
+    if (hasValidSession) {
+      // محاولة الاتصال باستخدام الجلسة المحفوظة فقط
+      await client.connect();
+      console.log("✅ تم الاتصال باستخدام الجلسة المحفوظة!");
+    } else {
+      // إذا لم تكن هناك جلسة صالحة، استخدم رقم الهاتف
+      if (PHONE_NUMBER === "+966XXXXXXXXX") {
+        throw new Error("❌ لا توجد جلسة صالحة ورقم الهاتف غير صحيح. يرجى تشغيل الكود محلياً أولاً لإنشاء جلسة صالحة.");
+      }
+      
       await client.start({
         phoneNumber: async () => PHONE_NUMBER,
         password: async () => PASSWORD,
         phoneCode: async () => PHONE_CODE,
         onError: (err) => console.log("❌ خطأ:", err),
       });
+    }
+  } catch (err) {
+    if (err.errorMessage === 'AUTH_KEY_DUPLICATED') {
+      console.error('❌ AUTH_KEY_DUPLICATED: سيتم حذف الجلسة القديمة وإنشاء جلسة جديدة.');
+      fs.unlinkSync('session.txt'); // حذف ملف الجلسة القديمة
+      stringSession = new StringSession(""); // إعادة تعيين الجلسة
+      
+      if (PHONE_NUMBER === "+966XXXXXXXXX") {
+        throw new Error("❌ تعذر إنشاء جلسة جديدة: رقم الهاتف غير صحيح. يرجى تشغيل الكود محلياً أولاً.");
+      }
+      
+      await client.start({
+        phoneNumber: async () => PHONE_NUMBER,
+        password: async () => PASSWORD,
+        phoneCode: async () => PHONE_CODE,
+        onError: (err) => console.log("❌ خطأ:", err),
+      });
+    } else if (err.errorMessage === 'PHONE_NUMBER_BANNED') {
+      console.error('❌ PHONE_NUMBER_BANNED: رقم الهاتف محظور. يرجى استخدام رقم هاتف آخر أو التواصل مع تيليجرام.');
+      throw err;
     } else {
-      throw err; // إعادة رمي الخطأ إذا لم يكن AUTH_KEY_DUPLICATED
+      console.error('❌ خطأ في الاتصال:', err.message);
+      throw err; // إعادة رمي الخطأ إذا لم يكن من الأخطاء المعروفة
     }
   }
 

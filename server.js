@@ -1774,8 +1774,180 @@ const server = http.createServer(async (req, res) => {
         <h1 style='color: #0078D7;'>🚀 البوت يعمل بنجاح!</h1>
         <p style='font-size: 1.2em; color: #333;'>الوقت الحالي: ${new Date().toLocaleString('ar-SA')}</p>
         <p><a href="/track_token" style='color: #0078D7; text-decoration: none;'>📊 متابعة التوكنات</a></p>
+        <p><a href="/add-test-token" style='color: #4CAF50; text-decoration: none; background: #f0f8ff; padding: 10px 20px; border-radius: 5px; display: inline-block; margin: 10px;'>🧪 إضافة توكن تجريبي (SOL)</a></p>
+        <div style='margin-top: 30px; background: #f8f9fa; padding: 20px; border-radius: 10px; max-width: 500px; margin: 30px auto;'>
+          <h3 style='color: #333; margin-bottom: 15px;'>➕ إضافة توكن للمراقبة</h3>
+          <form method="POST" action="/add-token" style='display: flex; flex-direction: column; gap: 10px;'>
+            <input type="text" name="token" placeholder="عنوان التوكن (Solana Address)" required 
+                   style='padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-family: monospace;'>
+            <input type="number" name="solValue" placeholder="قيمة SOL (اختياري)" step="0.01" min="0"
+                   style='padding: 10px; border: 1px solid #ddd; border-radius: 5px;'>
+            <button type="submit" style='background: #4CAF50; color: white; padding: 12px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;'>
+              🚀 بدء المراقبة
+            </button>
+          </form>
+        </div>
       </div>
     `);
+    return;
+  }
+
+  // إضافة توكن جديد للمراقبة
+  if (req.method === "POST" && req.url === "/add-token") {
+    let body = "";
+    req.on("data", chunk => {
+      body += chunk.toString();
+    });
+    req.on("end", async () => {
+      try {
+        const params = new URLSearchParams(body);
+        const token = params.get("token")?.trim();
+        const solValue = params.get("solValue") ? parseFloat(params.get("solValue")) : null;
+        
+        if (!token) {
+          res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+          res.end(`
+            <html>
+            <head><title>خطأ</title><meta charset="utf-8"></head>
+            <body style="font-family: Arial; text-align: center; padding: 50px;">
+              <h2 style="color: #F44336;">❌ يرجى إدخال عنوان التوكن</h2>
+              <a href="/" style="color: #0078D7; text-decoration: none;">🏠 العودة</a>
+            </body>
+            </html>
+          `);
+          return;
+        }
+
+        // التحقق من صحة عنوان التوكن (Solana address)
+        if (token.length < 32 || token.length > 44) {
+          res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+          res.end(`
+            <html>
+            <head><title>خطأ</title><meta charset="utf-8"></head>
+            <body style="font-family: Arial; text-align: center; padding: 50px;">
+              <h2 style="color: #F44336;">❌ عنوان التوكن غير صحيح</h2>
+              <p>يجب أن يكون عنوان Solana بين 32-44 حرف</p>
+              <a href="/" style="color: #0078D7; text-decoration: none;">🏠 العودة</a>
+            </body>
+            </html>
+          `);
+          return;
+        }
+
+        // التحقق من عدم وجود التوكن مسبقاً
+        if (trackedTokens[token]) {
+          res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+          res.end(`
+            <html>
+            <head><title>تحذير</title><meta charset="utf-8"></head>
+            <body style="font-family: Arial; text-align: center; padding: 50px;">
+              <h2 style="color: #FF9800;">⚠️ التوكن موجود مسبقاً في المراقبة</h2>
+              <a href="/track_token" style="color: #0078D7; text-decoration: none;">📊 عرض التوكنات</a>
+            </body>
+            </html>
+          `);
+          return;
+        }
+
+        // بدء مراقبة التوكن
+        console.log(`📥 إضافة توكن جديد للمراقبة: ${token}${solValue ? ` (${solValue} SOL)` : ''}`);
+        
+        // بدء المراقبة
+        await startTrackingToken(token, null, solValue);
+        
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(`
+          <html>
+          <head>
+            <title>تم الإضافة بنجاح</title>
+            <meta charset="utf-8">
+            <meta http-equiv="refresh" content="3;url=/track_token">
+          </head>
+          <body style="font-family: Arial; text-align: center; padding: 50px;">
+            <h2 style="color: #4CAF50;">✅ تم إضافة التوكن بنجاح!</h2>
+            <p><strong>التوكن:</strong> ${token}</p>
+            ${solValue ? `<p><strong>قيمة SOL:</strong> ${solValue}</p>` : ''}
+            <p>جاري فحص التوكن وبدء المراقبة...</p>
+            <p>سيتم إعادة توجيهك إلى صفحة المراقبة خلال 3 ثوانٍ</p>
+            <a href="/track_token" style="color: #0078D7; text-decoration: none;">📊 عرض الآن</a>
+          </body>
+          </html>
+        `);
+        
+      } catch (error) {
+        console.error('❌ خطأ في إضافة التوكن:', error.message);
+        res.writeHead(500, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(`
+          <html>
+          <head><title>خطأ في الخادم</title><meta charset="utf-8"></head>
+          <body style="font-family: Arial; text-align: center; padding: 50px;">
+            <h2 style="color: #F44336;">❌ حدث خطأ في الخادم</h2>
+            <p>${error.message}</p>
+            <a href="/" style="color: #0078D7; text-decoration: none;">🏠 العودة</a>
+          </body>
+          </html>
+        `);
+      }
+    });
+    return;
+  }
+
+  // إضافة توكن تجريبي للاختبار
+  if (req.method === "GET" && req.url === "/add-test-token") {
+    try {
+      // استخدام توكن SOL كمثال للاختبار
+      const testToken = "So11111111111111111111111111111111111111112"; // عنوان SOL
+      
+      if (trackedTokens[testToken]) {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(`
+          <html>
+          <head><title>توكن موجود</title><meta charset="utf-8"></head>
+          <body style="font-family: Arial; text-align: center; padding: 50px;">
+            <h2 style="color: #FF9800;">⚠️ التوكن التجريبي موجود مسبقاً</h2>
+            <a href="/track_token" style="color: #0078D7; text-decoration: none;">📊 عرض التوكنات</a>
+          </body>
+          </html>
+        `);
+        return;
+      }
+
+      console.log(`🧪 إضافة توكن تجريبي للاختبار: ${testToken}`);
+      await startTrackingToken(testToken, null, 15.0);
+      
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(`
+        <html>
+        <head>
+          <title>تم إضافة التوكن التجريبي</title>
+          <meta charset="utf-8">
+          <meta http-equiv="refresh" content="3;url=/track_token">
+        </head>
+        <body style="font-family: Arial; text-align: center; padding: 50px;">
+          <h2 style="color: #4CAF50;">✅ تم إضافة توكن تجريبي (SOL) للاختبار!</h2>
+          <p><strong>عنوان التوكن:</strong> ${testToken}</p>
+          <p><strong>قيمة SOL:</strong> 15.0</p>
+          <p>جاري فحص التوكن وبدء المراقبة...</p>
+          <p>سيتم إعادة توجيهك إلى صفحة المراقبة خلال 3 ثوانٍ</p>
+          <a href="/track_token" style="color: #0078D7; text-decoration: none;">📊 عرض الآن</a>
+        </body>
+        </html>
+      `);
+      
+    } catch (error) {
+      console.error('❌ خطأ في إضافة التوكن التجريبي:', error.message);
+      res.writeHead(500, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(`
+        <html>
+        <head><title>خطأ</title><meta charset="utf-8"></head>
+        <body style="font-family: Arial; text-align: center; padding: 50px;">
+          <h2 style="color: #F44336;">❌ خطأ في إضافة التوكن التجريبي</h2>
+          <p>${error.message}</p>
+          <a href="/" style="color: #0078D7; text-decoration: none;">🏠 العودة</a>
+        </body>
+        </html>
+      `);
+    }
     return;
   }
 

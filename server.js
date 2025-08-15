@@ -11,12 +11,26 @@ const { performance } = require('perf_hooks');
  * تحديث: نظام مراقبة الأسعار المحسن مع نظام فحص rugcheck متطور
  * - تم حذف استخدام Puppeteer نهائياً لتحسين الأداء والسرعة
  * - استخدام APIs مباشرة لجلب الأسعار (DexScreener + CoinGecko)
- * - نظام فحص rugcheck متطور باستخدام rugcheck_content_extractor.js
- * - تصنيف التوكنات بناءً على النقاط من 100 فقط:
- *   • 0-9 نقطة: آمن جداً ✅
- *   • 10-20 نقطة: آمن ✅ 
- *   • 21-34 نقطة: تحذيري ⚠️
- *   • 35+ نقطة: خطر 🔴
+ * - نظام فحص rugcheck متطور محدث يعتمد على الجمل بدلاً من الأرقام:
+ *   النظام الجديد يبحث عن جمل محددة:
+ *   
+ *   جمل DANGER (خطر):
+ *   • "Large Amount of LP Unlocked"
+ *   • "Mutable metadata"
+ *   • "Low Liquidity"
+ *   • "Top 10 holders high ownership"
+ *   • "Single holder ownership"
+ *   • "honeypot"
+ *   
+ *   جمل WARNING (تحذير):
+ *   • "Copycat token"
+ *   • "High holder correlation"
+ *   • "Low Amount of holders"
+ *   • "Creator history of rugged tokens"
+ *   
+ *   GOOD (آمن): عدم وجود أي من الجمل السابقة
+ *   
+ *   في حال الخلط بين جمل DANGER و WARNING يعتبر DANGER
  * - الحذف التلقائي للتوكنات الخطيرة والتحذيرية
  * - يتم حذف التوكنات التي تحمل حالة DANGER أو WARNING فوراً عند اكتشافها
  * - يتم حذف التوكنات ذات السيولة المنخفضة فوراً 
@@ -354,9 +368,9 @@ function loadTrackedTokens() {
   }
 }
 
-// التحقق من حالة التوكن باستخدام rugcheck_content_extractor.js
+// التحقق من حالة التوكن باستخدام rugcheck_content_extractor.js - النظام الجديد المحسن
 async function checkTokenSafety(token) {
-  console.log(`[${token}] 🔍 فحص التوكن باستخدام rugcheck_content_extractor.js...`);
+  console.log(`[${token}] 🔍 فحص التوكن باستخدام النظام المحسن للجمل...`);
   
   try {
     // استخدام rugcheck_content_extractor.js
@@ -366,43 +380,70 @@ async function checkTokenSafety(token) {
     // استخراج المحتوى المنسق
     const formattedContent = await extractor.extractFormattedContent(token);
     
-    // البحث عن النقاط في المحتوى المستخرج
-    const scoreMatch = formattedContent.match(/(\d+)\s*\/\s*100/);
+    // تحويل المحتوى إلى أحرف صغيرة للبحث بسهولة
+    const content = formattedContent.toLowerCase();
     
-    if (scoreMatch) {
-      const score = parseInt(scoreMatch[1]);
-      console.log(`[${token}] 📊 النقاط المستخرجة: ${score}/100`);
-      
-      // تصنيف التوكن حسب النقاط
-      let status;
-      if (score >= 10 && score <= 20) {
-        status = 'SAFE';
-        console.log(`[${token}] ✅ التوكن آمن - النقاط: ${score}/100`);
-      } else if (score > 20 && score < 35) {
-        status = 'WARNING';
-        console.log(`[${token}] ⚠️ التوكن تحذيري - النقاط: ${score}/100`);
-      } else if (score >= 35) {
-        status = 'DANGER';
-        console.log(`[${token}] 🔴 التوكن خطر - النقاط: ${score}/100`);
-      } else {
-        // أقل من 10 نقاط - نعتبره آمن جداً
-        status = 'SAFE';
-        console.log(`[${token}] ✅ التوكن آمن جداً - النقاط: ${score}/100`);
+    // جمل الخطر (DANGER)
+    const dangerPhrases = [
+      'large amount of lp unlocked',
+      'large amount of lp" unlocked', 
+      'mutable metadata',
+      'low liquidity',
+      'low amount of lp providers', // النص الفعلي من الصفحة
+      'top 10 holders high ownership',
+      'single holder ownership',
+      'honeypot',
+      'danger' // إضافة كلمة Danger نفسها
+    ];
+    
+    // جمل التحذير (WARNING)
+    const warningPhrases = [
+      'copycat token',
+      'high holder correlation',
+      'low amount of holders',
+      'creator history of rugged tokens',
+      'warning' // إضافة كلمة Warning نفسها
+    ];
+    
+    console.log(`[${token}] � البحث عن الجمل في المحتوى...`);
+    
+    // البحث عن جمل الخطر
+    let foundDangerPhrases = [];
+    for (const phrase of dangerPhrases) {
+      if (content.includes(phrase)) {
+        foundDangerPhrases.push(phrase);
+        console.log(`[${token}] 🔴 تم العثور على جملة خطر: "${phrase}"`);
       }
-      
-      return status;
-    } else {
-      console.log(`[${token}] ⚠️ لم يتم العثور على تقييم نقاط في المحتوى`);
-      
-      // الرجوع للطريقة القديمة كبديل
-      const apiResult = await checkTokenSafetyAPI(token);
-      if (apiResult !== 'UNKNOWN') {
-        console.log(`[${token}] ✅ نتيجة API البديل: ${apiResult}`);
-        return apiResult;
-      }
-      
-      return 'UNKNOWN';
     }
+    
+    // البحث عن جمل التحذير
+    let foundWarningPhrases = [];
+    for (const phrase of warningPhrases) {
+      if (content.includes(phrase)) {
+        foundWarningPhrases.push(phrase);
+        console.log(`[${token}] ⚠️ تم العثور على جملة تحذير: "${phrase}"`);
+      }
+    }
+    
+    // تحديد الحالة النهائية
+    let status;
+    if (foundDangerPhrases.length > 0) {
+      // في حال وجود أي جملة خطر أو خلط بين خطر وتحذير
+      status = 'DANGER';
+      console.log(`[${token}] 🔴 التوكن خطر - تم العثور على ${foundDangerPhrases.length} جملة خطر`);
+      console.log(`[${token}] الجمل الخطيرة: ${foundDangerPhrases.join(', ')}`);
+    } else if (foundWarningPhrases.length > 0) {
+      // في حال وجود جمل تحذير فقط
+      status = 'WARNING';
+      console.log(`[${token}] ⚠️ التوكن تحذيري - تم العثور على ${foundWarningPhrases.length} جملة تحذير`);
+      console.log(`[${token}] جمل التحذير: ${foundWarningPhrases.join(', ')}`);
+    } else {
+      // في حال عدم وجود أي جمل خطيرة أو تحذيرية
+      status = 'GOOD';
+      console.log(`[${token}] ✅ التوكن آمن - لم يتم العثور على أي جمل خطيرة أو تحذيرية`);
+    }
+    
+    return status;
     
   } catch (error) {
     console.error(`[${token}] ❌ خطأ في فحص التوكن: ${error.message}`);
@@ -618,82 +659,6 @@ async function checkTokenSafetyAPI(token) {
   }
 }
 
-// بديل استخدام جلب HTML البسيط
-async function checkTokenSafetySimple(token) {
-  try {
-    const options = {
-      hostname: 'rugcheck.xyz',
-      port: 443,
-      path: `/tokens/${token}`,
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      }
-    };
-
-    return new Promise((resolve) => {
-      const req = https.request(options, (res) => {
-        let data = '';
-        res.on('data', (chunk) => { data += chunk; });
-        res.on('end', () => {
-          try {
-            const htmlContent = data.toLowerCase();
-            
-            // البحث عن نقاط المخاطر في HTML
-            const riskScoreMatch = htmlContent.match(/(\d+)\s*\/\s*100/) || 
-                                 htmlContent.match(/risk[:\s]*(\d+)/i);
-            
-            if (riskScoreMatch) {
-              const riskScore = parseInt(riskScoreMatch[1]);
-              console.log(`[${token}] تم العثور على نقاط المخاطر: ${riskScore}`);
-              
-              if (riskScore <= 30) {
-                resolve('GOOD');
-              } else if (riskScore <= 69) {
-                resolve('WARNING');
-              } else {
-                resolve('DANGER');
-              }
-            } else {
-              // البحث عن الكلمات المفتاحية
-              if (htmlContent.includes('high risk') || htmlContent.includes('dangerous') || 
-                  htmlContent.includes('scam') || htmlContent.includes('honeypot')) {
-                resolve('DANGER');
-              } else if (htmlContent.includes('medium risk') || htmlContent.includes('warning')) {
-                resolve('WARNING');
-              } else if (htmlContent.includes('low risk') || htmlContent.includes('safe')) {
-                resolve('GOOD');
-              } else {
-                resolve('UNKNOWN');
-              }
-            }
-          } catch (parseError) {
-            console.log(`[${token}] خطأ في تحليل HTML: ${parseError.message}`);
-            resolve('UNKNOWN');
-          }
-        });
-      });
-
-      req.on('error', (error) => {
-        console.log(`[${token}] خطأ في طلب HTML: ${error.message}`);
-        resolve('UNKNOWN');
-      });
-
-      req.setTimeout(15000, () => {
-        console.log(`[${token}] انتهت مهلة طلب HTML`);
-        req.abort();
-        resolve('UNKNOWN');
-      });
-
-      req.end();
-    });
-  } catch (error) {
-    console.error(`[${token}] خطأ عام في جلب HTML: ${error.message}`);
-    return 'UNKNOWN';
-  }
-}
-
 // الدالة الرئيسية لمراقبة الأسعار باستخدام APIs (DexScreener + CoinGecko)
 async function startAPITracking(token, startTime) {
   console.log(`[${token}] 🚀 بدء المراقبة باستخدام API...`);
@@ -849,7 +814,7 @@ async function startAPITracking(token, startTime) {
             console.log(`[${token}] 🚀 وصل إلى 50%! الارتفاع: ${increase.toFixed(2)}%`);
             
             // التحقق من حالة rugcheck - إرسال أمر الشراء فقط للتوكنات الآمنة
-            if (trackedTokens[token].rugcheckStatus === 'SAFE') {
+            if (trackedTokens[token].rugcheckStatus === 'GOOD') {
               console.log(`[${token}] ✅ شرط الـ 50% محقق + التوكن آمن - إرسال أمر الشراء`);
               
               // التحقق من عدم الإرسال المسبق
@@ -1302,7 +1267,7 @@ if (!sessionFound) {
               });
               
               return; // عدم إرسال التوكن إذا كان تحذير
-            } else if (tokenSafety === 'SAFE') {
+            } else if (tokenSafety === 'GOOD') {
               console.log(`[${token}] ✅ التوكن آمن على rugcheck.xyz`);
             } else {
               // إذا كان UNKNOWN أو أي حالة أخرى
@@ -1323,8 +1288,8 @@ if (!sessionFound) {
             fs.writeFileSync('last_token.txt', token, 'utf8');
 
             // بدء مراقبة التوكن أولاً بدلاً من الإرسال الفوري
-            // سيتم إرسال أمر الشراء والتوكن فقط عند تحقق الـ 50% إذا كان التوكن آمن (SAFE)
-            if (tokenSafety === 'SAFE') {
+            // سيتم إرسال أمر الشراء والتوكن فقط عند تحقق الـ 50% إذا كان التوكن آمن (GOOD)
+            if (tokenSafety === 'GOOD') {
               console.log(`[${token}] 🔄 بدء مراقبة التوكن الآمن لانتظار تحقق الـ 50%...`);
               console.log(`[${token}] ⏳ سيتم إرسال أمر الشراء عند الوصول لـ 50% ارتفاع`);
               
@@ -1689,10 +1654,10 @@ async function checkAllTokensLiquidity() {
 }
 
 // فحص rugcheck بطريقة مبسطة
-// فحص rugcheck باستخدام rugcheck_content_extractor.js
+// فحص rugcheck باستخدام النظام المحسن للجمل
 async function checkRugcheckSimple(token) {
   try {
-    console.log(`[${token}] 🔍 فحص rugcheck باستخدام content extractor...`);
+    console.log(`[${token}] 🔍 فحص rugcheck باستخدام النظام المحسن للجمل...`);
     
     // استخدام rugcheck_content_extractor.js
     const RugcheckContentExtractor = require('./rugcheck_content_extractor');
@@ -1701,35 +1666,70 @@ async function checkRugcheckSimple(token) {
     // استخراج المحتوى المنسق
     const formattedContent = await extractor.extractFormattedContent(token);
     
-    // البحث عن النقاط في المحتوى المستخرج
-    const scoreMatch = formattedContent.match(/(\d+)\s*\/\s*100/);
+    // تحويل المحتوى إلى أحرف صغيرة للبحث بسهولة
+    const content = formattedContent.toLowerCase();
     
-    if (scoreMatch) {
-      const score = parseInt(scoreMatch[1]);
-      console.log(`[${token}] 📊 النقاط المستخرجة: ${score}/100`);
-      
-      // تصنيف التوكن حسب النقاط
-      let status;
-      if (score >= 10 && score <= 20) {
-        status = 'SAFE';
-        console.log(`[${token}] ✅ التوكن آمن - النقاط: ${score}/100`);
-      } else if (score > 20 && score < 35) {
-        status = 'WARNING';
-        console.log(`[${token}] ⚠️ التوكن تحذيري - النقاط: ${score}/100`);
-      } else if (score >= 35) {
-        status = 'DANGER';
-        console.log(`[${token}] 🔴 التوكن خطر - النقاط: ${score}/100`);
-      } else {
-        // أقل من 10 نقاط - نعتبره آمن جداً
-        status = 'SAFE';
-        console.log(`[${token}] ✅ التوكن آمن جداً - النقاط: ${score}/100`);
+    // جمل الخطر (DANGER)
+    const dangerPhrases = [
+      'large amount of lp unlocked',
+      'large amount of lp" unlocked', 
+      'mutable metadata',
+      'low liquidity',
+      'low amount of lp providers', // النص الفعلي من الصفحة
+      'top 10 holders high ownership',
+      'single holder ownership',
+      'honeypot',
+      'danger' // إضافة كلمة Danger نفسها
+    ];
+    
+    // جمل التحذير (WARNING)
+    const warningPhrases = [
+      'copycat token',
+      'high holder correlation',
+      'low amount of holders',
+      'creator history of rugged tokens',
+      'warning' // إضافة كلمة Warning نفسها
+    ];
+    
+    console.log(`[${token}] � البحث عن الجمل في المحتوى...`);
+    
+    // البحث عن جمل الخطر
+    let foundDangerPhrases = [];
+    for (const phrase of dangerPhrases) {
+      if (content.includes(phrase)) {
+        foundDangerPhrases.push(phrase);
+        console.log(`[${token}] 🔴 تم العثور على جملة خطر: "${phrase}"`);
       }
-      
-      return status;
-    } else {
-      console.log(`[${token}] ⚠️ لم يتم العثور على تقييم نقاط في المحتوى`);
-      return 'UNKNOWN';
     }
+    
+    // البحث عن جمل التحذير
+    let foundWarningPhrases = [];
+    for (const phrase of warningPhrases) {
+      if (content.includes(phrase)) {
+        foundWarningPhrases.push(phrase);
+        console.log(`[${token}] ⚠️ تم العثور على جملة تحذير: "${phrase}"`);
+      }
+    }
+    
+    // تحديد الحالة النهائية
+    let status;
+    if (foundDangerPhrases.length > 0) {
+      // في حال وجود أي جملة خطر أو خلط بين خطر وتحذير
+      status = 'DANGER';
+      console.log(`[${token}] 🔴 التوكن خطر - تم العثور على ${foundDangerPhrases.length} جملة خطر`);
+      console.log(`[${token}] الجمل الخطيرة: ${foundDangerPhrases.join(', ')}`);
+    } else if (foundWarningPhrases.length > 0) {
+      // في حال وجود جمل تحذير فقط
+      status = 'WARNING';
+      console.log(`[${token}] ⚠️ التوكن تحذيري - تم العثور على ${foundWarningPhrases.length} جملة تحذير`);
+      console.log(`[${token}] جمل التحذير: ${foundWarningPhrases.join(', ')}`);
+    } else {
+      // في حال عدم وجود أي جمل خطيرة أو تحذيرية
+      status = 'GOOD';
+      console.log(`[${token}] ✅ التوكن آمن - لم يتم العثور على أي جمل خطيرة أو تحذيرية`);
+    }
+    
+    return status;
     
   } catch (error) {
     console.error(`[${token}] ❌ خطأ في فحص rugcheck: ${error.message}`);
@@ -2607,7 +2607,7 @@ const server = http.createServer(async (req, res) => {
                   </div>
                 </div>
                 <div class="token-row"><span class="token-label">🔗 عنوان التوكن:</span> <span style="font-family: monospace; font-size: 0.85em; color: #666; word-break: break-all;">${t.token}</span></div>
-                <div class="token-row"><span class="token-label">🛡️ حالة <a href="https://rugcheck.xyz/tokens/${t.token}" target="_blank" style="color: #2196F3; text-decoration: none; font-weight: bold;">rugcheck.xyz</a>:</span> <span style="color: ${t.rugcheckStatus === 'SAFE' ? '#4CAF50' : t.rugcheckStatus === 'DANGER' ? '#F44336' : t.rugcheckStatus === 'WARNING' ? '#FF9800' : '#666'}; font-weight: bold;">${t.rugcheckStatus === 'SAFE' ? '✅ آمن' : t.rugcheckStatus === 'DANGER' ? '🔴 خطر' : t.rugcheckStatus === 'WARNING' ? '⚠️ تحذير' : '❓ لم يتم التحقق'}</span></div>
+                <div class="token-row"><span class="token-label">🛡️ حالة <a href="https://rugcheck.xyz/tokens/${t.token}" target="_blank" style="color: #2196F3; text-decoration: none; font-weight: bold;">rugcheck.xyz</a>:</span> <span style="color: ${t.rugcheckStatus === 'GOOD' ? '#4CAF50' : t.rugcheckStatus === 'DANGER' ? '#F44336' : t.rugcheckStatus === 'WARNING' ? '#FF9800' : '#666'}; font-weight: bold;">${t.rugcheckStatus === 'GOOD' ? '✅ آمن' : t.rugcheckStatus === 'DANGER' ? '🔴 خطر' : t.rugcheckStatus === 'WARNING' ? '⚠️ تحذير' : '❓ لم يتم التحقق'}</span></div>
                 <div class="token-row"><span class="token-label">💧 السيولة:</span> <span style="color: ${t.lowLiquidity === true ? '#FF5722' : t.lowLiquidity === false ? '#4CAF50' : '#666'}; font-weight: bold;">${t.lowLiquidity === true ? '⚠️ منخفضة' : t.lowLiquidity === false ? '✅ طبيعية' : '❓ لم يتم التحقق'}</span></div>
                 <div class="token-row"><span class="token-label">� قيمة SOL:</span> <span style="color: #FF9800; font-weight: bold;">${t.solValue ? t.solValue.toFixed(2) + ' SOL' : '❓ غير محددة'}</span></div>
                 <div class="token-row"><span class="token-label">�🕐 مدة المراقبة:</span> ${duration}</div>

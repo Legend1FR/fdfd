@@ -5,7 +5,7 @@
     "symbol": "TWINKIE",
     "startTime": "2025-08-15T06:19:25.413Z",
     "firstPrice": 0.0003108,
-    "lastPrice": 0.0003643,
+    "lastPrice": 0.00001445,
     "maxIncrease": 39.961389961389955,
     "reached50": false,
     "stopped": false,
@@ -20,31 +20,6 @@
     "highestPrice": 0.000435,
     "maxRisePercentage": 39.961389961389955,
     "priceHistoryEvery20s": [
-      {
-        "price": 0.0004162,
-        "changePercent": -4.3218390804597755,
-        "timestamp": "2025-08-15T06:33:31.014Z"
-      },
-      {
-        "price": 0.0004141,
-        "changePercent": -0.5045651129264769,
-        "timestamp": "2025-08-15T06:33:52.253Z"
-      },
-      {
-        "price": 0.0004141,
-        "changePercent": 0,
-        "timestamp": "2025-08-15T06:34:12.673Z"
-      },
-      {
-        "price": 0.0004254,
-        "changePercent": 2.728809466312486,
-        "timestamp": "2025-08-15T06:34:33.595Z"
-      },
-      {
-        "price": 0.0004282,
-        "changePercent": 0.6582040432534119,
-        "timestamp": "2025-08-15T06:34:54.255Z"
-      },
       {
         "price": 0.0004282,
         "changePercent": 0,
@@ -269,9 +244,34 @@
         "price": 0.0003643,
         "changePercent": 0,
         "timestamp": "2025-08-15T14:25:14.263Z"
+      },
+      {
+        "price": 0.0003643,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T14:32:39.359Z"
+      },
+      {
+        "price": 0.0003643,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T14:32:59.985Z"
+      },
+      {
+        "price": 0.0003643,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T14:33:21.102Z"
+      },
+      {
+        "price": 0.0003643,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T14:33:42.555Z"
+      },
+      {
+        "price": 0.00001445,
+        "changePercent": -96.0334888827889,
+        "timestamp": "2025-08-15T14:37:16.781Z"
       }
     ],
-    "lastPriceUpdate20s": "2025-08-15T14:25:14.263Z"
+    "lastPriceUpdate20s": "2025-08-15T14:37:16.781Z"
   },
   "HQPMEbkZmwxCscm6wQmDXc5Ywyft7aRsbKdooh6Ldr8a": {
     "token": "HQPMEbkZmwxCscm6wQmDXc5Ywyft7aRsbKdooh6Ldr8a",
@@ -513,9 +513,34 @@
         "price": 0.000001333,
         "changePercent": 0,
         "timestamp": "2025-08-15T14:25:14.190Z"
+      },
+      {
+        "price": 0.000001333,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T14:32:39.174Z"
+      },
+      {
+        "price": 0.000001333,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T14:32:59.918Z"
+      },
+      {
+        "price": 0.000001333,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T14:33:20.754Z"
+      },
+      {
+        "price": 0.000001333,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T14:33:41.401Z"
+      },
+      {
+        "price": 0.000001333,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T14:37:17.161Z"
       }
     ],
-    "lastPriceUpdate20s": "2025-08-15T14:25:14.190Z"
+    "lastPriceUpdate20s": "2025-08-15T14:37:17.161Z"
   },
   "pepo1CFNU2RXf7yXX7HNXazXwxsq8WrPvDHpHriwoLY": {
     "token": "pepo1CFNU2RXf7yXX7HNXazXwxsq8WrPvDHpHriwoLY",
@@ -523,7 +548,7 @@
     "symbol": "PEPO",
     "startTime": "2025-08-15T13:17:05.908Z",
     "firstPrice": 0.003549,
-    "lastPrice": 0.003503,
+    "lastPrice": 0.003492,
     "maxIncrease": 0,
     "reached50": false,
     "stopped": false,
@@ -582,8 +607,67 @@
         "price": 0.003503,
         "changePercent": 0,
         "timestamp": "2025-08-15T14:25:14.128Z"
+      },
+      {
+        "price": 0.003486,
+        "changePercent": -0.4852983157293773,
+        "timestamp": "2025-08-15T14:32:39.483Z"
+      },
+      {
+        "price": 0.003486,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T14:33:00.113Z"
+      },
+      {
+        "price": 0.003486,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T14:33:21.100Z"
+      },
+      {
+        "price": 0.003486,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T14:33:41.572Z"
+      },
+      {
+        "price": 0.003492,
+        "changePercent": 0.17211703958691707,
+        "timestamp": "2025-08-15T14:37:17.154Z"
       }
     ],
-    "lastPriceUpdate20s": "2025-08-15T14:25:14.128Z"
+    "lastPriceUpdate20s": "2025-08-15T14:37:17.154Z"
+  },
+  "FJv6JHhiQmVPpauia3VLxNBTNBL3S2uKtDB8u6X1SpUq": {
+    "token": "FJv6JHhiQmVPpauia3VLxNBTNBL3S2uKtDB8u6X1SpUq",
+    "name": "CatInBox",
+    "symbol": "CatInBox",
+    "startTime": "2025-08-15T14:33:36.565Z",
+    "firstPrice": 0.0007984,
+    "lastPrice": 0.0008069,
+    "maxIncrease": 1.0646292585170396,
+    "reached50": false,
+    "stopped": false,
+    "rugcheckStatus": "SAFE",
+    "lowLiquidity": false,
+    "solValue": 18.84,
+    "previousHighPrice": null,
+    "currentHighPrice": null,
+    "lastRiseTime": null,
+    "rapidRiseAchieved": false,
+    "priceRiseHistory": [],
+    "highestPrice": 0.0008069,
+    "maxRisePercentage": 1.0646292585170396,
+    "priceHistoryEvery20s": [
+      {
+        "price": 0.0007984,
+        "changePercent": 0,
+        "timestamp": "2025-08-15T14:33:37.615Z"
+      },
+      {
+        "price": 0.0008069,
+        "changePercent": 1.0646292585170396,
+        "timestamp": "2025-08-15T14:37:16.767Z"
+      }
+    ],
+    "lastPriceUpdate20s": "2025-08-15T14:37:16.767Z"
   }
 }

@@ -1026,12 +1026,24 @@ logLoginLogout('login');
 let stringSession = new StringSession("");
 let savedSessionData = "";
 
-if (fs.existsSync("session.txt")) {
-  savedSessionData = fs.readFileSync("session.txt", "utf8").trim();
-  if (savedSessionData && savedSessionData.length > 0) {
-    stringSession = new StringSession(savedSessionData);
-    console.log("📁 تم العثور على ملف جلسة بحجم:", savedSessionData.length, "حرف");
+// البحث عن ملف الجلسة في مواقع متعددة
+const sessionPaths = ["session.txt", "./render_package/session.txt"];
+let sessionFound = false;
+
+for (const sessionPath of sessionPaths) {
+  if (fs.existsSync(sessionPath)) {
+    savedSessionData = fs.readFileSync(sessionPath, "utf8").trim();
+    if (savedSessionData && savedSessionData.length > 0) {
+      stringSession = new StringSession(savedSessionData);
+      console.log("📁 تم العثور على ملف جلسة في:", sessionPath, "بحجم:", savedSessionData.length, "حرف");
+      sessionFound = true;
+      break;
+    }
   }
+}
+
+if (!sessionFound) {
+  console.log("⚠️ لم يتم العثور على ملف جلسة صالح في أي من المواقع المتوقعة");
 }
 
 (async () => {
@@ -1112,9 +1124,24 @@ if (fs.existsSync("session.txt")) {
     console.log("✅ Logged in!");
     const sessionString = client.session.save();
 
-    // حفظ الجلسة للاستخدام التالي
-    fs.writeFileSync("session.txt", sessionString);
-    console.log("💾 Session saved to session.txt");
+    // حفظ الجلسة في كلا الموقعين للاستخدام التالي
+    try {
+      fs.writeFileSync("session.txt", sessionString);
+      console.log("💾 Session saved to session.txt");
+    } catch (err) {
+      console.log("⚠️ تعذر حفظ session.txt:", err.message);
+    }
+    
+    try {
+      // التأكد من وجود مجلد render_package
+      if (!fs.existsSync("render_package")) {
+        fs.mkdirSync("render_package", { recursive: true });
+      }
+      fs.writeFileSync("render_package/session.txt", sessionString);
+      console.log("💾 Session saved to render_package/session.txt");
+    } catch (err) {
+      console.log("⚠️ تعذر حفظ render_package/session.txt:", err.message);
+    }
 
     await client.sendMessage("me", { message: "🚀 بوت الإشعارات شغال!" });
 

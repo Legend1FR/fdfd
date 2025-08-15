@@ -946,7 +946,7 @@ async function startTrackingToken(token, rugcheckStatus = null, solValue = null)
     maxIncrease: 0,
     reached50: false,
     stopped: false,
-    rugcheckStatus: rugcheckStatus, // حالة التحقق من rugcheck.xyz
+    rugcheckStatus: rugcheckStatus, // حالة التحقق  rugcheck.xyz
     lowLiquidity: null, // حالة السيولة: true = منخفضة، false = طبيعية، null = غير محققة
     solValue: solValue, // قيمة SOL المستخرجة من الرسالة
     // خصائص لمراقبة ارتفاع الأسعار

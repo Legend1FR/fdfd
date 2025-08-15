@@ -16,7 +16,7 @@ const client = new TelegramClient(stringSession, apiId, apiHash, {
     
     try {
         await client.start({
-            phoneNumber: async () => await input.text("أدخل رقم هاتفك (مع رمز الدولة، مثل: +966xxxxxxxxx): "),
+            phoneNumber: async () => await input.text("أدخل رقم هاتفك (مع رمز الدولة، مثل: +967xxxxxxxxx): "),
             password: async () => await input.text("أدخل كلمة المرور 2FA (اتركها فارغة إذا لم تكن موجودة): "),
             phoneCode: async () => await input.text("أدخل رمز التحقق الذي وصلك: "),
             onError: (err) => console.log("❌ خطأ:", err),

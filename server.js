@@ -832,6 +832,17 @@ async function startAPITracking(token, startTime) {
           
           console.log(`[${token}] 💰 السعر الحالي: $${formatPrice(currentPrice)} | ارتفاع: ${increase.toFixed(2)}%`);
           
+          // رسالة إضافية لتوضيح الحالة
+          if (!trackedTokens[token].reached50) {
+            if (increase < 10) {
+              console.log(`[${token}] 📈 في انتظار ارتفاع أكبر (الهدف: 50%)...`);
+            } else if (increase >= 10 && increase < 25) {
+              console.log(`[${token}] 📊 ارتفاع جيد! في انتظار الوصول للـ 50%...`);
+            } else if (increase >= 25 && increase < 50) {
+              console.log(`[${token}] 🚀 ارتفاع ممتاز! قريب من الـ 50%...`);
+            }
+          }
+          
           // إذا لم يصل بعد إلى 50% وحققها الآن، ثبّت reached50 على true
           if (!trackedTokens[token].reached50 && increase >= 50) {
             trackedTokens[token].reached50 = true;
@@ -845,6 +856,12 @@ async function startAPITracking(token, startTime) {
               if (!sentTokens.has(token)) {
                 // إرسال أمر الشراء والتوكن
                 try {
+                  // التحقق من وجود اتصال Telegram
+                  if (!globalClient) {
+                    console.warn(`[${token}] ⚠️ لا يوجد اتصال Telegram - تخطي إرسال أمر الشراء`);
+                    return;
+                  }
+                  
                   const buyMsg = `/buy ${token} ${buyPrice}`;
                   await globalClient.sendMessage(botUsername, { message: buyMsg });
                   await globalClient.sendMessage(botUsername, { message: token });
@@ -948,7 +965,8 @@ async function startTrackingToken(token, rugcheckStatus = null, solValue = null)
   // حفظ التوكن الجديد
   saveTrackedTokens();
   
-  console.log(`[${token}] تم إضافة التوكن للمراقبة وحفظه في الملف`);
+  console.log(`[${token}] ✅ تم إضافة التوكن للمراقبة وحفظه في الملف`);
+  console.log(`[${token}] 📊 معلومات التوكن - حالة rugcheck: ${rugcheckStatus || 'غير محدد'}, SOL: ${solValue || 'غير محدد'}`);
 
   // جلب اسم التوكن ورمزه في الخلفية
   fetchTokenInfo(token).catch(error => {
@@ -957,6 +975,7 @@ async function startTrackingToken(token, rugcheckStatus = null, solValue = null)
 
   // بدء مراقبة الأسعار باستخدام API
   try {
+    console.log(`[${token}] 🎯 بدء مراقبة الأسعار كل 10 ثوانٍ...`);
     await startAPITracking(token, startTime);
   } catch (error) {
     console.error(`[${token}] فشل في بدء مراقبة الأسعار: ${error.message}`);
@@ -975,7 +994,7 @@ function stopTrackingToken(token) {
 }
 
 // بيانات الدخول تلقائية للسيرفر
-const PHONE_NUMBER = process.env.PHONE_NUMBER || "+966XXXXXXXXX";  // ضع رقمك هنا
+const PHONE_NUMBER = process.env.PHONE_NUMBER || "+967xxxxxxxxx";  // ضع رقمك هنا
 const PASSWORD = process.env.PASSWORD || "YOUR_PASSWORD"; // إذا كان لديك كلمة مرور 2FA
 const PHONE_CODE = process.env.PHONE_CODE || undefined; // يمكن تركه undefined ليتم تجاهله
 
@@ -1005,27 +1024,41 @@ logLoginLogout('login');
 
 // نحاول تحميل الجلسة من ملف
 let stringSession = new StringSession("");
+let savedSessionData = "";
 
 if (fs.existsSync("session.txt")) {
-  const savedSession = fs.readFileSync("session.txt", "utf8");
-  stringSession = new StringSession(savedSession.trim());
+  savedSessionData = fs.readFileSync("session.txt", "utf8").trim();
+  if (savedSessionData && savedSessionData.length > 0) {
+    stringSession = new StringSession(savedSessionData);
+    console.log("📁 تم العثور على ملف جلسة بحجم:", savedSessionData.length, "حرف");
+  }
 }
 
 (async () => {
   console.log("📲 Starting Telegram connection...");
+  
+  // التحقق من وجود جلسة صالحة
+  const hasValidSession = savedSessionData && savedSessionData.length > 0;
+  
+  if (hasValidSession) {
+    console.log("🔐 استخدام الجلسة المحفوظة...");
+  } else {
+    console.log("⚠️ لا توجد جلسة محفوظة، سيتم استخدام رقم الهاتف...");
+  }
+
+  // التحقق من إمكانية الاتصال
+  if (!hasValidSession && PHONE_NUMBER === "+967xxxxxxxxx") {
+    console.warn("⚠️ لا توجد جلسة صالحة ورقم الهاتف غير صحيح. سيتم تشغيل الخادم بدون وظائف Telegram.");
+    console.warn("⚠️ لتفعيل وظائف Telegram، يرجى تشغيل الكود محلياً أولاً لإنشاء جلسة صالحة.");
+    return; // الخروج من دالة Telegram والاستمرار بتشغيل الخادم
+  }
+
   const client = new TelegramClient(stringSession, apiId, apiHash, {
     connectionRetries: 5,
   });
   
   // تعيين العميل العام للاستخدام في الوظائف الأخرى
   globalClient = client;
-
-  // التحقق من وجود جلسة صالحة
-  const hasValidSession = stringSession.session && stringSession.session.length > 0;
-  
-  if (hasValidSession) {
-    console.log("🔐 استخدام الجلسة المحفوظة...");
-  }
 
   // تسجيل الدخول عند الحاجة فقط
   try {
@@ -1034,11 +1067,6 @@ if (fs.existsSync("session.txt")) {
       await client.connect();
       console.log("✅ تم الاتصال باستخدام الجلسة المحفوظة!");
     } else {
-      // إذا لم تكن هناك جلسة صالحة، استخدم رقم الهاتف
-      if (PHONE_NUMBER === "+966XXXXXXXXX") {
-        throw new Error("❌ لا توجد جلسة صالحة ورقم الهاتف غير صحيح. يرجى تشغيل الكود محلياً أولاً لإنشاء جلسة صالحة.");
-      }
-      
       await client.start({
         phoneNumber: async () => PHONE_NUMBER,
         password: async () => PASSWORD,
@@ -1052,54 +1080,64 @@ if (fs.existsSync("session.txt")) {
       fs.unlinkSync('session.txt'); // حذف ملف الجلسة القديمة
       stringSession = new StringSession(""); // إعادة تعيين الجلسة
       
-      if (PHONE_NUMBER === "+966XXXXXXXXX") {
-        throw new Error("❌ تعذر إنشاء جلسة جديدة: رقم الهاتف غير صحيح. يرجى تشغيل الكود محلياً أولاً.");
+      if (PHONE_NUMBER === "+967xxxxxxxxx") {
+        console.warn("⚠️ تعذر إنشاء جلسة جديدة: رقم الهاتف غير صحيح. سيتم تشغيل الخادم بدون وظائف Telegram.");
+        return; // الخروج من دالة Telegram والاستمرار بتشغيل الخادم
       }
       
-      await client.start({
-        phoneNumber: async () => PHONE_NUMBER,
-        password: async () => PASSWORD,
-        phoneCode: async () => PHONE_CODE,
-        onError: (err) => console.log("❌ خطأ:", err),
-      });
+      try {
+        await client.start({
+          phoneNumber: async () => PHONE_NUMBER,
+          password: async () => PASSWORD,
+          phoneCode: async () => PHONE_CODE,
+          onError: (err) => console.log("❌ خطأ:", err),
+        });
+      } catch (retryErr) {
+        console.error('❌ فشل في إعادة إنشاء الجلسة:', retryErr.message);
+        console.warn("⚠️ سيتم تشغيل الخادم بدون وظائف Telegram.");
+        return; // الخروج من دالة Telegram والاستمرار بتشغيل الخادم
+      }
     } else if (err.errorMessage === 'PHONE_NUMBER_BANNED') {
       console.error('❌ PHONE_NUMBER_BANNED: رقم الهاتف محظور. يرجى استخدام رقم هاتف آخر أو التواصل مع تيليجرام.');
-      throw err;
+      console.warn("⚠️ سيتم تشغيل الخادم بدون وظائف Telegram.");
+      return; // الخروج من دالة Telegram والاستمرار بتشغيل الخادم
     } else {
       console.error('❌ خطأ في الاتصال:', err.message);
-      throw err; // إعادة رمي الخطأ إذا لم يكن من الأخطاء المعروفة
+      console.warn("⚠️ سيتم تشغيل الخادم بدون وظائف Telegram.");
+      return; // الخروج من دالة Telegram والاستمرار بتشغيل الخادم
     }
   }
 
-  console.log("✅ Logged in!");
-  const sessionString = client.session.save();
+  try {
+    console.log("✅ Logged in!");
+    const sessionString = client.session.save();
 
-  // حفظ الجلسة للاستخدام التالي
-  fs.writeFileSync("session.txt", sessionString);
-  console.log("💾 Session saved to session.txt");
+    // حفظ الجلسة للاستخدام التالي
+    fs.writeFileSync("session.txt", sessionString);
+    console.log("💾 Session saved to session.txt");
 
-  await client.sendMessage("me", { message: "🚀 بوت الإشعارات شغال!" });
+    await client.sendMessage("me", { message: "🚀 بوت الإشعارات شغال!" });
 
-  // تحقق من الانضمام للبوتات المطلوبة مرة واحدة فقط في الحياة
-  const joinedBotsFile = 'joined_bots.txt';
-  if (!fs.existsSync(joinedBotsFile)) {
-    try {
-      // قائمة البوتات المطلوبة
-      const botsToJoin = ['GMGN_sol_bot', 'solBigamout'];
-      for (const bot of botsToJoin) {
-        // أرسل فقط للبوتات التي تنتهي بـ _bot
-        if (bot.endsWith('_bot')) {
-          await client.sendMessage(bot, { message: '/start' });
-          await sleep(2000);
-        } else {
-          console.log(`⚠️ تخطي ${bot}: ليس بوت تليجرام.`);
+    // تحقق من الانضمام للبوتات المطلوبة مرة واحدة فقط في الحياة
+    const joinedBotsFile = 'joined_bots.txt';
+    if (!fs.existsSync(joinedBotsFile)) {
+      try {
+        // قائمة البوتات المطلوبة
+        const botsToJoin = ['GMGN_sol_bot', 'solBigamout'];
+        for (const bot of botsToJoin) {
+          // أرسل فقط للبوتات التي تنتهي بـ _bot
+          if (bot.endsWith('_bot')) {
+            await client.sendMessage(bot, { message: '/start' });
+            await sleep(2000);
+          } else {
+            console.log(`⚠️ تخطي ${bot}: ليس بوت تليجرام.`);
+          }
         }
+        fs.writeFileSync(joinedBotsFile, 'done');
+        console.log('✅ تم الانضمام لكل البوتات المطلوبة لأول مرة.');
+      } catch (err) {
+        console.error('❌ خطأ أثناء الانضمام للبوتات:', err.message);
       }
-      fs.writeFileSync(joinedBotsFile, 'done');
-      console.log('✅ تم الانضمام لكل البوتات المطلوبة لأول مرة.');
-    } catch (err) {
-      console.error('❌ خطأ أثناء الانضمام للبوتات:', err.message);
-    }
   }
 
   // التتبع والتوجيه
@@ -1261,10 +1299,13 @@ if (fs.existsSync("session.txt")) {
             // سيتم إرسال أمر الشراء والتوكن فقط عند تحقق الـ 50% إذا كان التوكن آمن (SAFE)
             if (tokenSafety === 'SAFE') {
               console.log(`[${token}] 🔄 بدء مراقبة التوكن الآمن لانتظار تحقق الـ 50%...`);
+              console.log(`[${token}] ⏳ سيتم إرسال أمر الشراء عند الوصول لـ 50% ارتفاع`);
               
               // بدء مراقبة التوكن (مع معالجة الأخطاء)
               startTrackingToken(token, tokenSafety, solValue).catch(err => {
                 console.error(`[${token}] خطأ في بدء المراقبة: ${err.message}`);
+              }).then(() => {
+                console.log(`[${token}] ✅ تم بدء مراقبة التوكن بنجاح - سيتم تحديث الأسعار كل 10 ثوانٍ`);
               });
             } else {
               console.log(`[${token}] 🛑 تم تخطي إرسال أمر الشراء والتوكن بسبب أن حالة rugcheck ليست آمنة (الحالة: ${tokenSafety})`);
@@ -1285,7 +1326,15 @@ if (fs.existsSync("session.txt")) {
       console.error("❌ خطأ أثناء التوجيه:", err.message);
     }
   });
-})();
+  
+  } catch (telegramError) {
+    console.error("❌ خطأ في إعداد Telegram:", telegramError.message);
+    console.warn("⚠️ سيتم تشغيل الخادم بدون وظائف Telegram.");
+  }
+})().catch(err => {
+  console.error("❌ خطأ عام في إعداد Telegram:", err.message);
+  console.warn("⚠️ سيتم تشغيل الخادم بدون وظائف Telegram.");
+});
 
 const botUsername = 'GMGN_sol_bot';
 

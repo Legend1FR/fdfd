@@ -1,7 +1,7 @@
 # حل مشكلة PHONE_NUMBER_BANNED في Render
 
 ## سبب المشكلة:
-المشكلة تحدث لأن الكود يحاول استخدام رقم هاتف وهمي "+966XXXXXXXXX" للتسجيل في تيليجرام، وهذا الرقم محظور أو غير صحيح.
+المشكلة تحدث لأن الكود يحاول استخدام رقم هاتف وهمي "+967xxxxxxxxx" للتسجيل في تيليجرام، وهذا الرقم محظور أو غير صحيح.
 
 ## الحل:
 
@@ -21,7 +21,7 @@ node server.js
 يمكنك الآن إضافة متغيرات البيئة التالية في إعدادات Render:
 
 ```
-PHONE_NUMBER=+966xxxxxxxxx    # رقمك الحقيقي
+PHONE_NUMBER=+967xxxxxxxxx    # رقمك الحقيقي
 PASSWORD=your_password        # كلمة مرور 2FA إذا كانت موجودة
 API_ID=your_api_id           # من my.telegram.org
 API_HASH=your_api_hash       # من my.telegram.org

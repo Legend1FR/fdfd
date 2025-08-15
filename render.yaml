@@ -15,7 +15,7 @@ services:
       - key: PUPPETEER_EXECUTABLE_PATH
         value: "/usr/bin/google-chrome-stable"
       - key: RENDER_EXTERNAL_URL
-        value: "https://cdcdcd.onrender.com"
+        value: "https://fdfd.onrender.com"
       - key: TZ
         value: "UTC"
     buildCommand: npm ci --only=production

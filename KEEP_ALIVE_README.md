@@ -48,7 +48,7 @@
 node monitor.js
 
 # تشغيل مع إعدادات مخصصة
-SERVER_URL=https://cdcdcd.onrender.com PING_INTERVAL=480000 WEBHOOK_URL=https://discord.com/api/webhooks/... node monitor.js
+SERVER_URL=https://fdfd.onrender.com PING_INTERVAL=480000 WEBHOOK_URL=https://discord.com/api/webhooks/... node monitor.js
 ```
 
 ### 4. سكريبت Bash (Linux/Mac)
@@ -99,7 +99,7 @@ chmod +x ping-server.sh
 ### متغيرات البيئة
 ```bash
 # رابط السيرفر (يُستخدم للـ keep-alive الداخلي)
-RENDER_EXTERNAL_URL=https://cdcdcd.onrender.com
+RENDER_EXTERNAL_URL=https://fdfd.onrender.com
 
 # رابط webhook للتنبيهات (اختياري)
 WEBHOOK_URL=https://discord.com/api/webhooks/...

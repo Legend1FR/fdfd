@@ -3,7 +3,7 @@ chcp 65001 >nul
 setlocal EnableDelayedExpansion
 
 :: إعدادات المراقبة
-set SERVER_URL=https://cdcdcd.onrender.com
+set SERVER_URL=https://fdfd.onrender.com
 set PING_INTERVAL=480
 set /a PING_MINUTES=%PING_INTERVAL% / 60
 

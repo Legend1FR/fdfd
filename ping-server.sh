@@ -3,7 +3,7 @@
 # سكريبت بسيط لـ ping السيرفر ومنعه من النوم
 # يمكن تشغيله من أي جهاز Linux/Mac أو WSL
 
-SERVER_URL="https://cdcdcd.onrender.com"
+SERVER_URL="https://fdfd.onrender.com"
 PING_INTERVAL=480  # 8 دقائق بالثواني
 
 echo "🚀 بدء مراقبة السيرفر: $SERVER_URL"

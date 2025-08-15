@@ -369,34 +369,6 @@ function loadTrackedTokens() {
   }
 }
 
-// فحص وتحديث حالة rugcheck للتوكنات الموجودة
-async function updateMissingRugcheckStatuses() {
-  console.log(`🔍 فحص حالة rugcheck للتوكنات الموجودة...`);
-  let needsSave = false;
-  
-  for (const token of Object.keys(trackedTokens)) {
-    const t = trackedTokens[token];
-    if (!t.stopped && (!t.rugcheckStatus || t.rugcheckStatus === 'UNKNOWN' || t.rugcheckStatus === null)) {
-      console.log(`[${token}] 🔍 فحص حالة rugcheck للتوكن...`);
-      try {
-        const rugcheckStatus = await checkTokenSafety(token);
-        t.rugcheckStatus = rugcheckStatus;
-        console.log(`[${token}] ✅ تم تحديث حالة rugcheck إلى: ${rugcheckStatus}`);
-        needsSave = true;
-      } catch (error) {
-        console.error(`[${token}] ❌ خطأ في فحص rugcheck: ${error.message}`);
-        t.rugcheckStatus = 'UNKNOWN';
-      }
-    }
-  }
-  
-  // حفظ التحديثات إذا تم تحديث أي حالات rugcheck
-  if (needsSave) {
-    saveTrackedTokens();
-    console.log(`💾 تم حفظ تحديثات حالة rugcheck`);
-  }
-}
-
 // التحقق من حالة التوكن باستخدام rugcheck_content_extractor.js
 async function checkTokenSafety(token) {
   console.log(`[${token}] 🔍 فحص التوكن باستخدام نظام الجمل المحددة...`);
@@ -1063,10 +1035,6 @@ console.log("🚀 Bot is now running 24/7 on the server!");
 
 // تحميل التوكنات والبدء
 loadTrackedTokens();
-// فحص وتحديث حالة rugcheck للتوكنات الموجودة
-updateMissingRugcheckStatuses().catch(error => {
-  console.error('❌ خطأ في فحص حالة rugcheck للتوكنات الموجودة:', error.message);
-});
 // تحميل التوكنات المرسلة
 loadSentTokens();
 // بدء التنظيف التلقائي للتوكنات الخطيرة
@@ -1089,56 +1057,23 @@ let stringSession = new StringSession("");
 let savedSessionData = "";
 
 // البحث عن ملف الجلسة في مواقع متعددة
-const sessionPaths = [
-  "session.txt", 
-  "./render_package/session.txt",
-  "render_package/session.txt",
-  "./session.txt"
-];
+const sessionPaths = ["session.txt", "./render_package/session.txt"];
 let sessionFound = false;
 
-// إنشاء مجلد render_package إذا لم يكن موجوداً
-try {
-  if (!fs.existsSync("render_package")) {
-    fs.mkdirSync("render_package", { recursive: true });
-    console.log("📁 تم إنشاء مجلد render_package");
-  }
-} catch (dirErr) {
-  console.log("⚠️ تعذر إنشاء مجلد render_package:", dirErr.message);
-}
-
 for (const sessionPath of sessionPaths) {
-  try {
-    if (fs.existsSync(sessionPath)) {
-      savedSessionData = fs.readFileSync(sessionPath, "utf8").trim();
-      if (savedSessionData && savedSessionData.length > 0) {
-        stringSession = new StringSession(savedSessionData);
-        console.log("📁 تم العثور على ملف جلسة في:", sessionPath, "بحجم:", savedSessionData.length, "حرف");
-        sessionFound = true;
-        break;
-      }
+  if (fs.existsSync(sessionPath)) {
+    savedSessionData = fs.readFileSync(sessionPath, "utf8").trim();
+    if (savedSessionData && savedSessionData.length > 0) {
+      stringSession = new StringSession(savedSessionData);
+      console.log("📁 تم العثور على ملف جلسة في:", sessionPath, "بحجم:", savedSessionData.length, "حرف");
+      sessionFound = true;
+      break;
     }
-  } catch (readErr) {
-    console.log("⚠️ خطأ في قراءة الجلسة من", sessionPath, ":", readErr.message);
   }
 }
 
 if (!sessionFound) {
   console.log("⚠️ لم يتم العثور على ملف جلسة صالح في أي من المواقع المتوقعة");
-  // طباعة قائمة الملفات الموجودة للتشخيص
-  try {
-    const currentDir = fs.readdirSync('./');
-    console.log("📂 الملفات في المجلد الحالي:", currentDir.filter(f => f.includes('session')));
-    
-    if (fs.existsSync('./render_package')) {
-      const renderPackageDir = fs.readdirSync('./render_package');
-      console.log("📂 الملفات في render_package:", renderPackageDir);
-    } else {
-      console.log("📂 مجلد render_package غير موجود");
-    }
-  } catch (debugErr) {
-    console.log("⚠️ خطأ في تشخيص الملفات:", debugErr.message);
-  }
 }
 
 (async () => {
@@ -1184,14 +1119,7 @@ if (!sessionFound) {
   } catch (err) {
     if (err.errorMessage === 'AUTH_KEY_DUPLICATED') {
       console.error('❌ AUTH_KEY_DUPLICATED: سيتم حذف الجلسة القديمة وإنشاء جلسة جديدة.');
-      // حذف ملف الجلسة القديمة إذا كان موجوداً
-      try {
-        if (fs.existsSync('session.txt')) {
-          fs.unlinkSync('session.txt');
-        }
-      } catch (unlinkErr) {
-        console.log('⚠️ تعذر حذف ملف الجلسة القديم:', unlinkErr.message);
-      }
+      fs.unlinkSync('session.txt'); // حذف ملف الجلسة القديمة
       stringSession = new StringSession(""); // إعادة تعيين الجلسة
       
       if (PHONE_NUMBER === "+967xxxxxxxxx") {
@@ -1981,19 +1909,8 @@ const server = http.createServer(async (req, res) => {
         // بدء مراقبة التوكن
         console.log(`📥 إضافة توكن جديد للمراقبة: ${token}${solValue ? ` (${solValue} SOL)` : ''}`);
         
-        // فحص حالة rugcheck أولاً
-        console.log(`[${token}] 🔍 بدء فحص حالة rugcheck للتوكن الجديد...`);
-        let rugcheckStatus = null;
-        try {
-          rugcheckStatus = await checkTokenSafety(token);
-          console.log(`[${token}] ✅ نتيجة فحص rugcheck: ${rugcheckStatus}`);
-        } catch (error) {
-          console.error(`[${token}] ❌ خطأ في فحص rugcheck: ${error.message}`);
-          rugcheckStatus = 'UNKNOWN';
-        }
-        
-        // بدء المراقبة مع حالة rugcheck
-        await startTrackingToken(token, rugcheckStatus, solValue);
+        // بدء المراقبة
+        await startTrackingToken(token, null, solValue);
         
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(`
@@ -2720,7 +2637,7 @@ const server = http.createServer(async (req, res) => {
                   </div>
                 </div>
                 <div class="token-row"><span class="token-label">🔗 عنوان التوكن:</span> <span style="font-family: monospace; font-size: 0.85em; color: #666; word-break: break-all;">${t.token}</span></div>
-                <div class="token-row"><span class="token-label">🛡️ حالة <a href="https://rugcheck.xyz/tokens/${t.token}" target="_blank" style="color: #2196F3; text-decoration: none; font-weight: bold;">rugcheck.xyz</a>:</span> <span style="color: ${(t.rugcheckStatus === 'SAFE' || t.rugcheckStatus === 'GOOD') ? '#4CAF50' : t.rugcheckStatus === 'DANGER' ? '#F44336' : t.rugcheckStatus === 'WARNING' ? '#FF9800' : '#666'}; font-weight: bold;">${(t.rugcheckStatus === 'SAFE' || t.rugcheckStatus === 'GOOD') ? '✅ آمن' : t.rugcheckStatus === 'DANGER' ? '🔴 خطر' : t.rugcheckStatus === 'WARNING' ? '⚠️ تحذير' : '❓ لم يتم التحقق'}</span></div>
+                <div class="token-row"><span class="token-label">🛡️ حالة <a href="https://rugcheck.xyz/tokens/${t.token}" target="_blank" style="color: #2196F3; text-decoration: none; font-weight: bold;">rugcheck.xyz</a>:</span> <span style="color: ${t.rugcheckStatus === 'SAFE' ? '#4CAF50' : t.rugcheckStatus === 'DANGER' ? '#F44336' : t.rugcheckStatus === 'WARNING' ? '#FF9800' : '#666'}; font-weight: bold;">${t.rugcheckStatus === 'SAFE' ? '✅ آمن' : t.rugcheckStatus === 'DANGER' ? '🔴 خطر' : t.rugcheckStatus === 'WARNING' ? '⚠️ تحذير' : '❓ لم يتم التحقق'}</span></div>
                 <div class="token-row"><span class="token-label">💧 السيولة:</span> <span style="color: ${t.lowLiquidity === true ? '#FF5722' : t.lowLiquidity === false ? '#4CAF50' : '#666'}; font-weight: bold;">${t.lowLiquidity === true ? '⚠️ منخفضة' : t.lowLiquidity === false ? '✅ طبيعية' : '❓ لم يتم التحقق'}</span></div>
                 <div class="token-row"><span class="token-label">� قيمة SOL:</span> <span style="color: #FF9800; font-weight: bold;">${t.solValue ? t.solValue.toFixed(2) + ' SOL' : '❓ غير محددة'}</span></div>
                 <div class="token-row"><span class="token-label">�🕐 مدة المراقبة:</span> ${duration}</div>

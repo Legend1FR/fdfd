@@ -4,7 +4,12 @@
   "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "NODE_ENV=development node server.js",
+    "prod": "NODE_ENV=production node server.js",
+    "test-keepalive": "chmod +x test-keepalive.sh && ./test-keepalive.sh",
+    "external-keepalive": "chmod +x external-keepalive.sh && ./external-keepalive.sh",
+    "deploy": "chmod +x deploy-keepalive.sh && ./deploy-keepalive.sh"
   },
   "keywords": [],
   "author": "",

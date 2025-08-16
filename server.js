@@ -6,6 +6,7 @@ const http = require("http");
 const https = require("https");
 
 const { performance } = require('perf_hooks');
+const KeepAliveService = require('./keep-alive');
 
 /*
  * تحديث: نظام مراقبة الأسعار المحسن مع نظام فحص rugcheck متطور
@@ -1885,13 +1886,76 @@ const server = http.createServer(async (req, res) => {
 
   // Status endpoint للتحقق من حالة الخدمة
   if (req.method === "GET" && req.url === "/status") {
+    const keepAliveStatus = global.keepAliveService ? global.keepAliveService.getStatus() : null;
+    
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ 
       status: "running", 
       port: PORT,
       timestamp: new Date().toISOString(),
-      tracked_tokens: Object.keys(trackedTokens).length
+      tracked_tokens: Object.keys(trackedTokens).length,
+      keep_alive: keepAliveStatus
     }));
+    return;
+  }
+
+  // Keep Alive status endpoint
+  if (req.method === "GET" && req.url === "/keep-alive-status") {
+    const keepAliveStatus = global.keepAliveService ? global.keepAliveService.getStatus() : null;
+    
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(`
+      <html lang="ar">
+      <head>
+        <title>حالة Keep Alive</title>
+        <meta http-equiv="refresh" content="30">
+        <style>
+          body { font-family: Arial, sans-serif; background: #f5f6fa; margin: 0; padding: 20px; direction: rtl; }
+          .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 10px; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+          .status-card { background: #f8f9fa; border-radius: 8px; padding: 20px; margin: 20px 0; border: 1px solid #e9ecef; }
+          .status-good { border-color: #4CAF50; background: #e8f5e8; }
+          .status-bad { border-color: #F44336; background: #ffeaea; }
+          .value { font-weight: bold; color: #0078D7; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1 style="text-align: center; color: #0078D7;">🔄 حالة Keep Alive Service</h1>
+          
+          ${keepAliveStatus ? `
+            <div class="status-card ${keepAliveStatus.isRunning ? 'status-good' : 'status-bad'}">
+              <h3>📊 الحالة العامة</h3>
+              <p><strong>نشط:</strong> <span class="value">${keepAliveStatus.isRunning ? '✅ نعم' : '❌ لا'}</span></p>
+              <p><strong>الرابط المستهدف:</strong> <span class="value">${keepAliveStatus.url}</span></p>
+              <p><strong>فترة الفحص:</strong> <span class="value">${(keepAliveStatus.interval / 1000 / 60).toFixed(0)} دقيقة</span></p>
+              <p><strong>آخر ping:</strong> <span class="value">${keepAliveStatus.lastPingTime ? new Date(keepAliveStatus.lastPingTime).toLocaleString('ar-SA') : 'لم يتم بعد'}</span></p>
+            </div>
+            
+            <div class="status-card">
+              <h3>📈 الإحصائيات</h3>
+              <p><strong>إجمالي المحاولات:</strong> <span class="value">${keepAliveStatus.totalPings}</span></p>
+              <p><strong>نجح:</strong> <span class="value" style="color: #4CAF50;">${keepAliveStatus.successfulPings}</span></p>
+              <p><strong>فشل:</strong> <span class="value" style="color: #F44336;">${keepAliveStatus.failedPings}</span></p>
+              <p><strong>معدل النجاح:</strong> <span class="value">${keepAliveStatus.successRate}</span></p>
+            </div>
+          ` : `
+            <div class="status-card status-bad">
+              <h3>⚠️ خدمة Keep Alive غير مفعلة</h3>
+              <p>الخدمة قد تكون متوقفة أو غير مكوّنة بشكل صحيح.</p>
+            </div>
+          `}
+          
+          <div style="text-align: center; margin-top: 30px;">
+            <a href="/" style="color: #0078D7; text-decoration: none; font-weight: bold;">🏠 العودة للرئيسية</a>
+          </div>
+          
+          <div style="text-align: center; margin-top: 10px; color: #666; font-size: 14px;">
+            تحديث تلقائي كل 30 ثانية
+          </div>
+        </div>
+      </body>
+      </html>
+    `);
     return;
   }
 
@@ -1903,6 +1967,7 @@ const server = http.createServer(async (req, res) => {
         <h1 style='color: #0078D7;'>🚀 البوت يعمل بنجاح!</h1>
         <p style='font-size: 1.2em; color: #333;'>الوقت الحالي: ${new Date().toLocaleString('ar-SA')}</p>
         <p><a href="/track_token" style='color: #0078D7; text-decoration: none;'>📊 متابعة التوكنات</a></p>
+        <p><a href="/keep-alive-status" style='color: #4CAF50; text-decoration: none;'>🔄 حالة Keep Alive</a></p>
         <p><a href="/add-test-token" style='color: #4CAF50; text-decoration: none; background: #f0f8ff; padding: 10px 20px; border-radius: 5px; display: inline-block; margin: 10px;'>🧪 إضافة توكن تجريبي (SOL)</a></p>
         <div style='margin-top: 30px; background: #f8f9fa; padding: 20px; border-radius: 10px; max-width: 500px; margin: 30px auto;'>
           <h3 style='color: #333; margin-bottom: 15px;'>➕ إضافة توكن للمراقبة</h3>
@@ -1915,6 +1980,11 @@ const server = http.createServer(async (req, res) => {
               🚀 بدء المراقبة
             </button>
           </form>
+        </div>
+        <div style='margin-top: 20px; padding: 15px; background: #e8f5e8; border-radius: 8px; max-width: 600px; margin: 20px auto;'>
+          <h4 style='color: #2e7d32; margin-top: 0;'>🔄 نظام Keep Alive مفعل</h4>
+          <p style='color: #2e7d32; margin: 5px 0; font-size: 14px;'>البوت يعمل 24/7 بدون توقف على Render</p>
+          <p style='color: #2e7d32; margin: 5px 0; font-size: 14px;'>يتم إرسال ping كل 8 دقائق لمنع دخول الخدمة في وضع النوم</p>
         </div>
       </div>
     `);
@@ -3029,6 +3099,21 @@ server.listen(PORT, '0.0.0.0', async () => {
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
   console.log(`🔗 Status check: http://localhost:${PORT}/status`);
   
+  // تفعيل نظام Keep Alive لمنع دخول الخدمة في وضع النوم
+  const keepAlive = new KeepAliveService({
+    url: process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`,
+    interval: 8 * 60 * 1000, // ping كل 8 دقائق
+    endpoint: '/ping'
+  });
+  
+  // بدء نظام Keep Alive فقط على Render (وليس محلياً)
+  if (process.env.RENDER || process.env.NODE_ENV === 'production') {
+    keepAlive.start();
+    console.log('🔄 Keep Alive Service activated for Render deployment');
+  } else {
+    console.log('💻 Running locally - Keep Alive Service disabled');
+  }
+  
   // تفعيل الحذف التلقائي للتوكنات الخطيرة والتحذيرية كل ساعة
   startAutoDeletion();
   console.log('✅ Automatic deletion enabled every hour for dangerous and warning tokens')
@@ -3041,6 +3126,9 @@ server.listen(PORT, '0.0.0.0', async () => {
       console.error('❌ خطأ في إعادة فحص التكوينات القديمة:', error.message);
     }
   }, 5000); // انتظار 5 ثوانٍ بعد بدء السيرفر
+  
+  // إضافة endpoint لعرض حالة Keep Alive
+  global.keepAliveService = keepAlive;
 }).on('error', (err) => {
   console.error('❌ خطأ في الخادم:', err);
   process.exit(1);

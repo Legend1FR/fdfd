@@ -18,6 +18,11 @@ services:
         value: "https://fdfd-i8p9.onrender.com"
       - key: TZ
         value: "UTC"
+      # Keep Alive Configuration
+      - key: KEEP_ALIVE_ENABLED
+        value: "true"
+      - key: KEEP_ALIVE_INTERVAL
+        value: "480000"  # 8 minutes in milliseconds
       # إضافة متغيرات Telegram (اختيارية - يمكن تركها فارغة إذا كان session.txt موجود)
       - key: PHONE_NUMBER
         value: ""

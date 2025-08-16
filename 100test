@@ -9,56 +9,6 @@ const { performance } = require('perf_hooks');
 const KeepAliveService = require('./keep-alive');
 const EnhancedPersistence = require('./enhanced_persistence');
 
-// نظام إدارة الطلبات لتجنب Rate Limiting
-class RequestManager {
-  constructor() {
-    this.lastRequestTime = 0;
-    this.minDelay = 3000; // 3 ثوانٍ كحد أدنى بين الطلبات
-    this.requestQueue = [];
-    this.processing = false;
-  }
-  
-  async makeRequest(requestFn) {
-    return new Promise((resolve) => {
-      this.requestQueue.push({ requestFn, resolve });
-      this.processQueue();
-    });
-  }
-  
-  async processQueue() {
-    if (this.processing || this.requestQueue.length === 0) return;
-    
-    this.processing = true;
-    
-    while (this.requestQueue.length > 0) {
-      const { requestFn, resolve } = this.requestQueue.shift();
-      
-      // التأكد من مرور الوقت المطلوب منذ آخر طلب
-      const now = Date.now();
-      const timeSinceLastRequest = now - this.lastRequestTime;
-      
-      if (timeSinceLastRequest < this.minDelay) {
-        const waitTime = this.minDelay - timeSinceLastRequest;
-        await new Promise(r => setTimeout(r, waitTime));
-      }
-      
-      try {
-        const result = await requestFn();
-        resolve(result);
-      } catch (error) {
-        resolve(null);
-      }
-      
-      this.lastRequestTime = Date.now();
-    }
-    
-    this.processing = false;
-  }
-}
-
-// إنشاء مدير الطلبات العام
-const requestManager = new RequestManager();
-
 /*
  * تحديث: نظام مراقبة الأسعار المحسن مع نظام فحص rugcheck متطور
  * - تم حذف استخدام Puppeteer نهائياً لتحسين الأداء والسرعة
@@ -138,21 +88,18 @@ function saveSentTokens() {
   }
 }
 
-// جلب بيانات التوكن من DexScreener API مع معالجة محسنة للأخطاء
+// جلب بيانات التوكن من DexScreener API
 async function fetchTokenInfo(token) {
-  return await requestManager.makeRequest(async () => {
-    return new Promise((resolve) => {
-      try {
-        const apiOptions = {
-          hostname: 'api.dexscreener.com',
-          port: 443,
-          path: `/latest/dex/tokens/${token}`,
-          method: 'GET',
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-            'Accept': 'application/json',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Connection': 'keep-alive',
+  return new Promise((resolve) => {
+    try {
+      const apiOptions = {
+        hostname: 'api.dexscreener.com',
+        port: 443,
+        path: `/latest/dex/tokens/${token}`,
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': 'application/json',
         }
       };
       
@@ -161,28 +108,6 @@ async function fetchTokenInfo(token) {
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
           try {
-            // التحقق من Status Code
-            if (res.statusCode !== 200) {
-              console.log(`[${token}] خطأ HTTP في جلب معلومات التوكن: ${res.statusCode}`);
-              resolve(null);
-              return;
-            }
-            
-            // التحقق من نوع المحتوى
-            const contentType = res.headers['content-type'] || '';
-            if (!contentType.includes('application/json')) {
-              console.log(`[${token}] خطأ: استجابة غير JSON لمعلومات التوكن (${contentType})`);
-              resolve(null);
-              return;
-            }
-            
-            // التحقق من وجود أخطاء Cloudflare
-            if (data.includes('error code: 1015') || data.includes('Cloudflare')) {
-              console.log(`[${token}] خطأ Cloudflare في جلب معلومات التوكن`);
-              resolve(null);
-              return;
-            }
-            
             const jsonData = JSON.parse(data);
             if (jsonData.pairs && jsonData.pairs.length > 0) {
               const pair = jsonData.pairs[0];
@@ -206,9 +131,6 @@ async function fetchTokenInfo(token) {
             }
           } catch (parseError) {
             console.log(`[${token}] خطأ في تحليل JSON لمعلومات التوكن: ${parseError.message}`);
-            // طباعة جزء من البيانات للتشخيص
-            const preview = data.substring(0, 100);
-            console.log(`[${token}] بيانات خام: ${preview}...`);
             resolve(null);
           }
         });
@@ -219,7 +141,7 @@ async function fetchTokenInfo(token) {
         resolve(null);
       });
       
-      req.setTimeout(15000, () => { // زيادة timeout إلى 15 ثانية
+      req.setTimeout(10000, () => {
         console.log(`[${token}] انتهت مهلة طلب API لمعلومات التوكن`);
         req.abort();
         resolve(null);
@@ -230,57 +152,52 @@ async function fetchTokenInfo(token) {
       console.log(`[${token}] فشل في طلب معلومات التوكن: ${error.message}`);
       resolve(null);
     }
-    });
   });
 }
 
-// دالة جلب السعر المبسطة باستخدام APIs متعددة مع معالجة محسنة للأخطاء
+// دالة جلب السعر المبسطة باستخدام APIs متعددة
 async function getTokenPriceSimple(token) {
   console.log(`[${token}] 💰 Fetching price...`);
   
-  return await requestManager.makeRequest(async () => {
-    try {
-      // قائمة APIs للحصول على السعر مع تأخير متدرج
-      const priceAPIs = [
-        {
-          name: 'DexScreener',
-          hostname: 'api.dexscreener.com',
-          path: `/latest/dex/tokens/${token}`,
-          parser: (data) => {
-            if (data.pairs && data.pairs.length > 0) {
-              return parseFloat(data.pairs[0].priceUsd);
-            }
-            return null;
+  try {
+    // قائمة APIs للحصول على السعر
+    const priceAPIs = [
+      {
+        name: 'DexScreener',
+        hostname: 'api.dexscreener.com',
+        path: `/latest/dex/tokens/${token}`,
+        parser: (data) => {
+          if (data.pairs && data.pairs.length > 0) {
+            return parseFloat(data.pairs[0].priceUsd);
           }
-        },
-        {
-          name: 'CoinGecko',
-          hostname: 'api.coingecko.com',
-          path: `/api/v3/simple/token_price/solana?contract_addresses=${token}&vs_currencies=usd`,
-          parser: (data) => {
-            if (data[token] && data[token].usd) {
-              return parseFloat(data[token].usd);
-            }
-            return null;
-          }
+          return null;
         }
-      ];
+      },
+      {
+        name: 'CoinGecko',
+        hostname: 'api.coingecko.com',
+        path: `/api/v3/simple/token_price/solana?contract_addresses=${token}&vs_currencies=usd`,
+        parser: (data) => {
+          if (data[token] && data[token].usd) {
+            return parseFloat(data[token].usd);
+          }
+          return null;
+        }
+      }
+    ];
 
-      for (const api of priceAPIs) {
-        try {
-          console.log(`[${token}] محاولة ${api.name}...`);
-          
-          const options = {
-            hostname: api.hostname,
-            port: 443,
-            path: api.path,
-            method: 'GET',
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-              'Accept': 'application/json',
-              'Accept-Language': 'en-US,en;q=0.9',
-              'Connection': 'keep-alive',
-              'Upgrade-Insecure-Requests': '1',
+    for (const api of priceAPIs) {
+      try {
+        console.log(`[${token}] محاولة ${api.name}...`);
+        
+        const options = {
+          hostname: api.hostname,
+          port: 443,
+          path: api.path,
+          method: 'GET',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json',
           }
         };
 
@@ -290,41 +207,11 @@ async function getTokenPriceSimple(token) {
             res.on('data', (chunk) => { data += chunk; });
             res.on('end', () => {
               try {
-                // التحقق من نوع المحتوى قبل المعالجة
-                const contentType = res.headers['content-type'] || '';
-                
-                // التحقق من Status Code
-                if (res.statusCode !== 200) {
-                  console.log(`[${token}] ${api.name} HTTP Error: ${res.statusCode}`);
-                  resolve(null);
-                  return;
-                }
-                
-                // التحقق من أن الاستجابة JSON
-                if (!contentType.includes('application/json')) {
-                  console.log(`[${token}] ${api.name} خطأ: الاستجابة ليست JSON (${contentType})`);
-                  // طباعة جزء من الاستجابة للتشخيص
-                  const preview = data.substring(0, 200);
-                  console.log(`[${token}] ${api.name} معاينة الاستجابة: ${preview}...`);
-                  resolve(null);
-                  return;
-                }
-                
-                // التحقق من وجود error codes معروفة في النص
-                if (data.includes('error code: 1015') || data.includes('Cloudflare')) {
-                  console.log(`[${token}] ${api.name} خطأ Cloudflare: Rate limiting detected`);
-                  resolve(null);
-                  return;
-                }
-                
                 const jsonData = JSON.parse(data);
                 const price = api.parser(jsonData);
                 resolve(price);
               } catch (parseError) {
                 console.log(`[${token}] خطأ في تحليل ${api.name}: ${parseError.message}`);
-                // طباعة جزء من البيانات الخام للمساعدة في التشخيص
-                const preview = data.substring(0, 100);
-                console.log(`[${token}] ${api.name} بيانات خام: ${preview}...`);
                 resolve(null);
               }
             });
@@ -335,7 +222,7 @@ async function getTokenPriceSimple(token) {
             resolve(null);
           });
 
-          req.setTimeout(15000, () => { // زيادة timeout إلى 15 ثانية
+          req.setTimeout(8000, () => {
             console.log(`[${token}] انتهت مهلة ${api.name}`);
             req.abort();
             resolve(null);
@@ -358,14 +245,10 @@ async function getTokenPriceSimple(token) {
     console.log(`[${token}] ❌ فشل جلب السعر من جميع المصادر`);
     return null;
 
-      console.log(`[${token}] ❌ فشل جلب السعر من جميع المصادر`);
-      return null;
-
-    } catch (error) {
-      console.error(`[${token}] ❌ خطأ عام في جلب السعر: ${error.message}`);
-      return null;
-    }
-  });
+  } catch (error) {
+    console.error(`[${token}] ❌ خطأ عام في جلب السعر: ${error.message}`);
+    return null;
+  }
 }
 
 // دالة مساعدة لتنسيق الأسعار
@@ -1103,7 +986,7 @@ async function startAPITracking(token, startTime) {
         continue;
       }
       
-      await new Promise(r => setTimeout(r, 20000)); // فحص كل 20 ثانية (مُحدث لتقليل Rate Limiting)
+      await new Promise(r => setTimeout(r, 10000)); // فحص كل 10 ثوانٍ
     }
     
     // تنظيف نهائي: حذف التوكن إذا كان خطيراً أو تحذيرياً أو سيولة منخفضة
@@ -1180,7 +1063,7 @@ async function startTrackingToken(token, rugcheckStatus = null, solValue = null)
 
   // بدء مراقبة الأسعار باستخدام API
   try {
-    console.log(`[${token}] 🎯 بدء مراقبة الأسعار كل 20 ثانية (محسن لتجنب Rate Limiting)...`);
+    console.log(`[${token}] 🎯 بدء مراقبة الأسعار كل 10 ثوانٍ...`);
     await startAPITracking(token, startTime);
   } catch (error) {
     console.error(`[${token}] فشل في بدء مراقبة الأسعار: ${error.message}`);
@@ -1589,7 +1472,7 @@ if (!sessionFound) {
               startTrackingToken(token, tokenSafety, solValue).catch(err => {
                 console.error(`[${token}] خطأ في بدء المراقبة: ${err.message}`);
               }).then(() => {
-                console.log(`[${token}] ✅ تم بدء مراقبة التوكن بنجاح - سيتم تحديث الأسعار كل 20 ثانية`);
+                console.log(`[${token}] ✅ تم بدء مراقبة التوكن بنجاح - سيتم تحديث الأسعار كل 10 ثوانٍ`);
               });
             } else {
               console.log(`[${token}] 🛑 تم تخطي إرسال أمر الشراء والتوكن بسبب أن حالة rugcheck ليست آمنة (الحالة: ${tokenSafety})`);

@@ -7,7 +7,6 @@ const https = require("https");
 
 const { performance } = require('perf_hooks');
 const KeepAliveService = require('./keep-alive');
-const EnhancedPersistence = require('./enhanced_persistence');
 
 /*
  * تحديث: نظام مراقبة الأسعار المحسن مع نظام فحص rugcheck متطور
@@ -59,9 +58,6 @@ const sentTokensFile = 'sent_tokens.txt';
 
 // مخزن مؤقت لسجلات وقت التنفيذ
 const executionLogsBuffer = [];
-
-// نظام الاستمرارية المحسن
-let enhancedPersistence = null;
 
 // تحميل التوكنات المرسلة من الملف
 function loadSentTokens() {
@@ -269,12 +265,6 @@ function formatPrice(price) {
 // حفظ التوكنات المتتبعة إلى ملف
 function saveTrackedTokens() {
   try {
-    // استخدام النظام المحسن إذا كان متاحاً
-    if (enhancedPersistence && enhancedPersistence.isRunning) {
-      return; // النظام المحسن سيتولى الحفظ تلقائياً
-    }
-    
-    // الطريقة التقليدية للحفظ
     const tokensToSave = {};
     Object.keys(trackedTokens).forEach(token => {
       const t = trackedTokens[token];
@@ -314,86 +304,67 @@ function saveTrackedTokens() {
 // تحميل التوكنات المتتبعة من ملف
 function loadTrackedTokens() {
   try {
-    // محاولة استعادة من النسخ الاحتياطية إذا فشل الملف الرئيسي
-    let savedTokens = null;
-    
     if (fs.existsSync(trackedTokensFile)) {
-      try {
-        savedTokens = JSON.parse(fs.readFileSync(trackedTokensFile, 'utf8'));
-      } catch (parseError) {
-        console.error('❌ خطأ في تحليل ملف التوكنات الرئيسي:', parseError.message);
-        
-        // محاولة الاستعادة من النسخ الاحتياطية
-        if (enhancedPersistence) {
-          console.log('🔄 محاولة الاستعادة من النسخ الاحتياطية...');
-          savedTokens = enhancedPersistence.restoreFromBackup();
+      const savedTokens = JSON.parse(fs.readFileSync(trackedTokensFile, 'utf8'));
+      Object.keys(savedTokens).forEach(token => {
+        const savedToken = savedTokens[token];
+        trackedTokens[token] = {
+          ...savedToken,
+          name: savedToken.name || null, // تحميل اسم التوكن
+          symbol: savedToken.symbol || null, // تحميل رمز التوكن
+          startTime: new Date(savedToken.startTime), // تحويل التاريخ من string إلى Date
+          rugcheckStatus: savedToken.rugcheckStatus || 'UNKNOWN', // تحميل حالة rugcheck أو تعيين UNKNOWN إذا لم تكن موجودة
+          lowLiquidity: savedToken.lowLiquidity !== undefined ? savedToken.lowLiquidity : null, // تحميل حالة السيولة، null = لم يتم فحصها
+          solValue: savedToken.solValue || null, // تحميل قيمة SOL
+          // التأكد من وجود جميع الخصائص الجديدة
+          previousHighPrice: savedToken.previousHighPrice || null,
+          currentHighPrice: savedToken.currentHighPrice || null,
+          lastRiseTime: savedToken.lastRiseTime ? new Date(savedToken.lastRiseTime) : null,
+          rapidRiseAchieved: savedToken.rapidRiseAchieved || false,
+          priceRiseHistory: savedToken.priceRiseHistory || [], // تأكد من وجود المصفوفة
+          // خصائص جديدة لتتبع أعلى سعر ونسبة الارتفاع
+          highestPrice: savedToken.highestPrice || null,
+          maxRisePercentage: savedToken.maxRisePercentage || 0,
+          priceHistoryEvery20s: savedToken.priceHistoryEvery20s || [],
+          lastPriceUpdate20s: savedToken.lastPriceUpdate20s ? new Date(savedToken.lastPriceUpdate20s) : null
+        };
+      });
+      console.log(`📊 Loaded ${Object.keys(savedTokens).length} tokens from saved file`);
+      
+      // إصلاح التوكنات القديمة التي قد تحتوي على قيم سيولة غير صحيحة
+      let needsSave = false;
+      Object.keys(trackedTokens).forEach(token => {
+        if (trackedTokens[token].lowLiquidity === null) {
+          trackedTokens[token].lowLiquidity = false; // افتراض سيولة طبيعية للتوكنات القديمة
+          needsSave = true;
         }
-      }
-    }
-    
-    if (!savedTokens) {
-      console.log('📊 لا توجد توكنات محفوظة للتحميل');
-      return;
-    }
-    
-    Object.keys(savedTokens).forEach(token => {
-      const savedToken = savedTokens[token];
-      trackedTokens[token] = {
-        ...savedToken,
-        name: savedToken.name || null, // تحميل اسم التوكن
-        symbol: savedToken.symbol || null, // تحميل رمز التوكن
-        startTime: new Date(savedToken.startTime), // تحويل التاريخ من string إلى Date
-        rugcheckStatus: savedToken.rugcheckStatus || 'UNKNOWN', // تحميل حالة rugcheck أو تعيين UNKNOWN إذا لم تكن موجودة
-        lowLiquidity: savedToken.lowLiquidity !== undefined ? savedToken.lowLiquidity : null, // تحميل حالة السيولة، null = لم يتم فحصها
-        solValue: savedToken.solValue || null, // تحميل قيمة SOL
-        // التأكد من وجود جميع الخصائص الجديدة
-        previousHighPrice: savedToken.previousHighPrice || null,
-        currentHighPrice: savedToken.currentHighPrice || null,
-        lastRiseTime: savedToken.lastRiseTime ? new Date(savedToken.lastRiseTime) : null,
-        rapidRiseAchieved: savedToken.rapidRiseAchieved || false,
-        priceRiseHistory: savedToken.priceRiseHistory || [], // تأكد من وجود المصفوفة
-        // خصائص جديدة لتتبع أعلى سعر ونسبة الارتفاع
-        highestPrice: savedToken.highestPrice || null,
-        maxRisePercentage: savedToken.maxRisePercentage || 0,
-        priceHistoryEvery20s: savedToken.priceHistoryEvery20s || [],
-        lastPriceUpdate20s: savedToken.lastPriceUpdate20s ? new Date(savedToken.lastPriceUpdate20s) : null
-      };
-    });
-    console.log(`📊 Loaded ${Object.keys(savedTokens).length} tokens from saved file`);
-    
-    // إصلاح التوكنات القديمة التي قد تحتوي على قيم سيولة غير صحيحة
-    let needsSave = false;
-    Object.keys(trackedTokens).forEach(token => {
-      if (trackedTokens[token].lowLiquidity === null) {
-        trackedTokens[token].lowLiquidity = false; // افتراض سيولة طبيعية للتوكنات القديمة
-        needsSave = true;
-      }
-    });
-    
-    // حفظ التحديثات إذا تم إصلاح أي توكنات
-    if (needsSave) {
-      saveTrackedTokens();
-      console.log(`🔧 Fixed liquidity values for old tokens`);
-    }
-    
-    // إعادة بدء المراقبة للتوكنات التي لم تتوقف
-    Object.keys(trackedTokens).forEach(token => {
-      const t = trackedTokens[token];
+      });
       
-      // جلب معلومات التوكن إذا لم تكن متوفرة
-      if (!t.name && !t.symbol) {
-        fetchTokenInfo(token).catch(error => {
-          console.error(`[${token}] فشل في جلب معلومات التوكن: ${error.message}`);
-        });
+      // حفظ التحديثات إذا تم إصلاح أي توكنات
+      if (needsSave) {
+        saveTrackedTokens();
+        console.log(`🔧 Fixed liquidity values for old tokens`);
       }
       
-      if (!t.stopped) {
-        console.log(`🔄 Restarting token monitoring: ${token}`);
-        startAPITracking(token, t.startTime).catch(err => {
-          console.error(`[${token}] خطأ في إعادة بدء المراقبة: ${err.message}`);
-        });
-      }
-    });
+      // إعادة بدء المراقبة للتوكنات التي لم تتوقف
+      Object.keys(trackedTokens).forEach(token => {
+        const t = trackedTokens[token];
+        
+        // جلب معلومات التوكن إذا لم تكن متوفرة
+        if (!t.name && !t.symbol) {
+          fetchTokenInfo(token).catch(error => {
+            console.error(`[${token}] فشل في جلب معلومات التوكن: ${error.message}`);
+          });
+        }
+        
+        if (!t.stopped) {
+          console.log(`🔄 Restarting token monitoring: ${token}`);
+          startAPITracking(token, t.startTime).catch(err => {
+            console.error(`[${token}] خطأ في إعادة بدء المراقبة: ${err.message}`);
+          });
+        }
+      });
+    }
   } catch (error) {
     console.error('❌ خطأ في تحميل التوكنات المتتبعة:', error.message);
   }
@@ -1090,14 +1061,6 @@ const apiId = parseInt(process.env.API_ID) || 23299626;
 const apiHash = process.env.API_HASH || "89de50a19288ec535e8b008ae2ff268d";
 
 console.log("🚀 Bot is now running 24/7 on the server!");
-
-// تهيئة نظام الاستمرارية المحسن
-enhancedPersistence = new EnhancedPersistence({
-  trackedTokensFile: trackedTokensFile,
-  saveInterval: 30000, // حفظ كل 30 ثانية
-  heartbeatInterval: 60000, // heartbeat كل دقيقة
-  maxBackups: 10
-});
 
 // تحميل التوكنات والبدء
 loadTrackedTokens();
@@ -3136,12 +3099,6 @@ server.listen(PORT, '0.0.0.0', async () => {
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
   console.log(`🔗 Status check: http://localhost:${PORT}/status`);
   
-  // بدء نظام الاستمرارية المحسن
-  if (enhancedPersistence) {
-    enhancedPersistence.start(trackedTokens);
-    console.log('🔧 Enhanced Persistence System activated');
-  }
-  
   // تفعيل نظام Keep Alive لمنع دخول الخدمة في وضع النوم
   const keepAlive = new KeepAliveService({
     url: process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`,
@@ -3180,37 +3137,12 @@ server.listen(PORT, '0.0.0.0', async () => {
 // معالجة الأخطاء غير المتوقعة
 process.on('uncaughtException', (err) => {
   console.error('❌ خطأ غير متوقع:', err);
-  // حفظ أخير قبل الإنهاء
-  if (enhancedPersistence) {
-    enhancedPersistence.stop();
-  }
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ رفض غير معالج:', reason);
-  // حفظ أخير قبل الإنهاء
-  if (enhancedPersistence) {
-    enhancedPersistence.stop();
-  }
   process.exit(1);
-});
-
-// معالجة إشارات الإنهاء
-process.on('SIGINT', () => {
-  console.log('\n🛑 تم تلقي SIGINT - إيقاف النظام بأمان...');
-  if (enhancedPersistence) {
-    enhancedPersistence.stop();
-  }
-  process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-  console.log('🛑 تم تلقي SIGTERM - إيقاف النظام بأمان...');
-  if (enhancedPersistence) {
-    enhancedPersistence.stop();
-  }
-  process.exit(0);
 });
 
 // دالة إرسال الرسائل للمجموعات
